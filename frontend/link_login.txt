@@ -1,0 +1,10 @@
+
+ ⛅️ wrangler 4.51.0
+───────────────────
+Attempting to login via OAuth...
+Visit this link to authenticate: https://dash.cloudflare.com/oauth2/auth?response_type=code&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7&redirect_uri=http%3A%2F%2Flocalhost%3A8976%2Foauth%2Fcallback&scope=account%3Aread%20user%3Aread%20workers%3Awrite%20workers_kv%3Awrite%20workers_routes%3Awrite%20workers_scripts%3Awrite%20workers_tail%3Aread%20d1%3Awrite%20pages%3Awrite%20zone%3Aread%20ssl_certs%3Awrite%20ai%3Awrite%20queues%3Awrite%20pipelines%3Awrite%20secrets_store%3Awrite%20containers%3Awrite%20cloudchamber%3Awrite%20connectivity%3Aadmin%20offline_access&state=TusHGBSzlCFfro-2JFxatBp4.kqD4Kfh&code_challenge=yL_AZ1zdt59-3nAYsPil19Hu20wsCsbEzd7yWj9iL6g&code_challenge_method=S256
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mTimed out waiting for authorization code, please try again.[0m
+
+
+🪵  Logs were written to "/home/codespace/.config/.wrangler/logs/wrangler-2025-11-29_20-23-54_625.log"
