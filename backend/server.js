@@ -195,7 +195,7 @@ app.patch('/api/user/profile', auth, async (req, res) => {
 app.get('/api/chats', auth, async (req, res) => {
     await connectDB();
     const chats = await Chat.find({ userId: req.user._id })
-        .sort({ updatedAt: -1 })
+        
         .select('title model updatedAt')
         .limit(50);
     res.json(chats);
