@@ -10,25 +10,54 @@ export default function AdminDashboard() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [userDetails, setUserDetails] = useState(null);
   const [viewingChat, setViewingChat] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const token = localStorage.getItem('token');
 
-  useEffect(() => { axios.get(API_URL + '/admin/users', { headers: { Authorization: 'Bearer ' + token } }).then(res => setUsers(res.data)); }, []);
+  useEffect(() => { 
+    setLoading(true);
+    setError(null);
+    axios.get(API_URL + '/admin/users', { headers: { Authorization: 'Bearer ' + token } })
+      .then(res => {
+        console.log('Usuários recebidos:', res.data);
+        setUsers(res.data || []);
+      })
+      .catch(err => {
+        console.error('Erro ao carregar usuários:', err);
+        setError('Erro ao carregar usuários: ' + (err.response?.data?.error || err.message));
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const selectUser = async (id) => {
     setSelectedUser(id); setViewingChat(null);
-    const res = await axios.get(API_URL + '/admin/user/' + id, { headers: { Authorization: 'Bearer ' + token } });
-    setUserDetails(res.data);
+    try {
+      const res = await axios.get(API_URL + '/admin/user/' + id, { headers: { Authorization: 'Bearer ' + token } });
+      console.log('Detalhes do usuário:', res.data);
+      setUserDetails(res.data);
+    } catch(err) {
+      console.error('Erro ao carregar detalhes:', err);
+      alert('Erro ao carregar detalhes do usuário');
+    }
   };
 
   const openChat = async (chatId) => {
-    const res = await axios.get(API_URL + '/admin/chat/' + chatId, { headers: { Authorization: 'Bearer ' + token } });
-    setViewingChat(res.data);
+    try {
+      const res = await axios.get(API_URL + '/admin/chat/' + chatId, { headers: { Authorization: 'Bearer ' + token } });
+      setViewingChat(res.data);
+    } catch(err) {
+      console.error('Erro ao carregar chat:', err);
+      alert('Erro ao carregar chat');
+    }
   };
 
   return (
     <div className="min-h-screen bg-gray-100 text-black flex font-sans">
       <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto hidden md:block">
-        <div className="p-4 border-b font-bold text-lg">Usuários</div>
+        <div className="p-4 border-b font-bold text-lg">Usuários ({users.length})</div>
+        {loading && <div className="p-4 text-gray-500">Carregando...</div>}
+        {error && <div className="p-4 text-red-500 text-sm">{error}</div>}
+        {!loading && users.length === 0 && <div className="p-4 text-gray-500">Nenhum usuário encontrado</div>}
         {users.map(u => (
             <div key={u._id} onClick={() => selectUser(u._id)} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedUser === u._id ? 'bg-blue-50 border-l-4 border-blue-600' : ''}`}>
                 <div className="font-bold flex items-center gap-2"><User size={16}/> {u.username}</div>

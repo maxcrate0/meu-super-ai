@@ -16,10 +16,14 @@ export default function ChatInterface({ user }) {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('chat');
   
-  // SEUS MODELOS
-  const [models, setModels] = useState([]);
+  // SEUS MODELOS - Inicializa com fallback para evitar lista vazia
+  const [models, setModels] = useState([
+    {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
+    {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
+    {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3 (Free)"}
+  ]);
   
-  const [selectedModel, setSelectedModel] = useState("openai/gpt-oss-20b:free");
+  const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-exp:free");
   const [userSystemPrompt, setUserSystemPrompt] = useState("");
   const [showConfig, setShowConfig] = useState(false);
   
@@ -36,19 +40,16 @@ export default function ChatInterface({ user }) {
   const loadModels = async () => {
     try {
       const res = await axios.get(API_URL + '/models');
-      setModels(res.data);
-      if (res.data.length > 0 && !res.data.find(m => m.id === selectedModel)) {
-        setSelectedModel(res.data[0].id);
+      if (res.data && res.data.length > 0) {
+        setModels(res.data);
+        if (!res.data.find(m => m.id === selectedModel)) {
+          setSelectedModel(res.data[0].id);
+        }
       }
+      // Se res.data estiver vazio, mantém os modelos de fallback
     } catch(e) {
-      // Fallback para modelos hardcoded se falhar
-      setModels([
-        {id:"openai/gpt-oss-20b:free", name:"GPT OSS 20B (Free)"},
-        {id:"x-ai/grok-4.1-fast:free", name:"Grok 4.1 Fast (Free)"},
-        {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
-        {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
-        {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3 (Free)"}
-      ]);
+      console.log('Usando modelos de fallback');
+      // Mantém os modelos de fallback que já estão no state
     }
   };
 
@@ -85,13 +86,24 @@ export default function ChatInterface({ user }) {
   };
 
   const sendMessage = async () => {
-    if (!input) return;
+    if (!input.trim()) return;
     let currentChatId = activeChatId;
     if (!currentChatId && mode === 'chat') {
         try {
+            console.log('Criando novo chat com modelo:', selectedModel);
             const res = await axios.post(API_URL + '/chats', { model: selectedModel, systemPrompt: userSystemPrompt }, { headers: { Authorization: 'Bearer ' + token } });
-            currentChatId = res.data._id; setActiveChatId(currentChatId); loadChats();
-        } catch(e) { return alert("Erro ao criar chat"); }
+            console.log('Chat criado:', res.data);
+            if (!res.data || !res.data._id) {
+                throw new Error('Resposta inválida do servidor');
+            }
+            currentChatId = res.data._id; 
+            setActiveChatId(currentChatId); 
+            loadChats();
+        } catch(e) { 
+            console.error('Erro ao criar chat:', e);
+            const errorMsg = e.response?.data?.error || e.message;
+            return alert("Erro ao criar chat: " + errorMsg); 
+        }
     }
 
     const newMsgs = [...messages, { role: 'user', content: input }];
