@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
-  BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle
+  BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -20,6 +20,10 @@ export default function AdminDashboard() {
   const [globalApiKey, setGlobalApiKey] = useState('');
   const [apiKeyConfig, setApiKeyConfig] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [models, setModels] = useState([]);
+  const [defaultModel, setDefaultModel] = useState('');
+  const [showModelModal, setShowModelModal] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
   
   const token = localStorage.getItem('token');
 
@@ -27,6 +31,7 @@ export default function AdminDashboard() {
     loadUsers();
     loadStats();
     loadApiKeyConfig();
+    loadModels();
   }, []);
 
   const loadUsers = async () => {
@@ -60,9 +65,44 @@ export default function AdminDashboard() {
         headers: { Authorization: 'Bearer ' + token } 
       });
       setApiKeyConfig(res.data);
+      if (res.data.defaultModel) {
+        setDefaultModel(res.data.defaultModel);
+      }
     } catch(e) {
       console.error('Erro ao carregar config');
     }
+  };
+
+  const loadModels = async () => {
+    try {
+      const res = await axios.get(API_URL + '/models');
+      if (res.data && res.data.length > 0) {
+        setModels(res.data);
+      }
+    } catch(e) {
+      // Fallback
+      setModels([
+        {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
+        {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
+        {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3"}
+      ]);
+    }
+  };
+
+  const saveDefaultModel = async () => {
+    if (!defaultModel) return;
+    setSavingModel(true);
+    try {
+      await axios.post(API_URL + '/admin/config/default-model', 
+        { model: defaultModel },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      alert('Modelo padrão salvo com sucesso!');
+      setShowModelModal(false);
+    } catch(err) {
+      alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
+    }
+    setSavingModel(false);
   };
 
   const selectUser = async (id) => {
@@ -175,7 +215,7 @@ export default function AdminDashboard() {
         )}
 
         {/* API Key Config */}
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-700 space-y-2">
           <button 
             onClick={() => setShowApiKeyModal(true)}
             className="w-full bg-yellow-600 hover:bg-yellow-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
@@ -183,8 +223,20 @@ export default function AdminDashboard() {
             <Key size={18}/> Gerenciar API Key
           </button>
           {apiKeyConfig?.hasGlobalApiKey && (
-            <p className="text-xs text-green-400 mt-2 text-center">
-              ✓ Chave configurada: {apiKeyConfig.globalApiKeyPreview}
+            <p className="text-xs text-green-400 text-center">
+              ✓ Chave: {apiKeyConfig.globalApiKeyPreview}
+            </p>
+          )}
+          
+          <button 
+            onClick={() => setShowModelModal(true)}
+            className="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Cpu size={18}/> Modelo Padrão
+          </button>
+          {defaultModel && (
+            <p className="text-xs text-purple-400 text-center truncate" title={defaultModel}>
+              ✓ {models.find(m => m.id === defaultModel)?.name || defaultModel.split('/').pop()}
             </p>
           )}
         </div>
@@ -460,6 +512,54 @@ export default function AdminDashboard() {
                   Salvar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Modelo Padrão */}
+      {showModelModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <Cpu className="text-purple-500"/> Modelo Padrão
+              </h2>
+              <button onClick={() => setShowModelModal(false)}>
+                <X size={24}/>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-purple-900/30 border border-purple-600/50 p-4 rounded-lg">
+                <div className="text-sm">
+                  <p className="font-medium text-purple-400">Modelo padrão do sistema</p>
+                  <p className="text-purple-200/70 mt-1">
+                    Este modelo será selecionado automaticamente quando um usuário criar um novo chat.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">Selecione o modelo</label>
+                <select
+                  className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
+                  value={defaultModel}
+                  onChange={e => setDefaultModel(e.target.value)}
+                >
+                  {models.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-2">{models.length} modelos gratuitos disponíveis</p>
+              </div>
+
+              <button 
+                onClick={saveDefaultModel}
+                disabled={savingModel || !defaultModel}
+                className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 p-3 rounded-lg transition font-medium"
+              >
+                {savingModel ? 'Salvando...' : 'Salvar Modelo Padrão'}
+              </button>
             </div>
           </div>
         </div>

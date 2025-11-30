@@ -76,11 +76,21 @@ export default function ChatInterface({ user, setUser }) {
   const loadModels = async () => {
     setModelsLoading(true);
     try {
-      const res = await axios.get(API_URL + '/models');
-      if (res.data && res.data.length > 0) {
-        setModels(res.data);
-        if (!res.data.find(m => m.id === selectedModel)) {
-          setSelectedModel(res.data[0].id);
+      // Carrega modelos e modelo padrão em paralelo
+      const [modelsRes, defaultModelRes] = await Promise.all([
+        axios.get(API_URL + '/models'),
+        axios.get(API_URL + '/config/default-model').catch(() => ({ data: {} }))
+      ]);
+      
+      if (modelsRes.data && modelsRes.data.length > 0) {
+        setModels(modelsRes.data);
+        
+        // Usa o modelo padrão do admin se disponível
+        const adminDefault = defaultModelRes.data?.defaultModel;
+        if (adminDefault && modelsRes.data.find(m => m.id === adminDefault)) {
+          setSelectedModel(adminDefault);
+        } else if (!modelsRes.data.find(m => m.id === selectedModel)) {
+          setSelectedModel(modelsRes.data[0].id);
         }
       }
     } catch(e) {

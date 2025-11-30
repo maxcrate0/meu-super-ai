@@ -490,8 +490,29 @@ const processToolCalls = async (toolCalls, apiKey, model) => {
         }
 
         if (funcName === 'swarm_delegate') {
+            // Verifica se tasks existe e é um array
+            const tasks = args.tasks || args.task || [];
+            const taskArray = Array.isArray(tasks) ? tasks : [tasks];
+            
+            if (taskArray.length === 0) {
+                results.push({
+                    tool_call_id: toolCall.id,
+                    role: "tool",
+                    content: JSON.stringify({ error: "Nenhuma tarefa fornecida para o swarm_delegate" })
+                });
+                continue;
+            }
+            
+            // Normaliza as tarefas (caso venham em formato diferente)
+            const normalizedTasks = taskArray.map((t, i) => ({
+                id: t.id || `task_${i + 1}`,
+                instruction: t.instruction || t.task || t.prompt || String(t),
+                context: t.context || t.data || '',
+                output_format: t.output_format || t.format || ''
+            }));
+            
             // Executa todas as tarefas em paralelo
-            const taskPromises = args.tasks.map(task => executeSwarmAgent(apiKey, task, model));
+            const taskPromises = normalizedTasks.map(task => executeSwarmAgent(apiKey, task, model));
             const taskResults = await Promise.all(taskPromises);
             
             results.push({
@@ -505,6 +526,16 @@ const processToolCalls = async (toolCalls, apiKey, model) => {
             });
         } 
         else if (funcName === 'swarm_pipeline') {
+            // Verifica se action existe
+            if (!args.action) {
+                results.push({
+                    tool_call_id: toolCall.id,
+                    role: "tool",
+                    content: JSON.stringify({ error: "Nenhuma ação fornecida para o swarm_pipeline" })
+                });
+                continue;
+            }
+            
             // 1. Executa a ação
             const actionResult = await executePipelineAction(args.action);
             
@@ -520,9 +551,9 @@ const processToolCalls = async (toolCalls, apiKey, model) => {
             // 2. Envia para agente Swarm processar
             const processingTask = {
                 id: "pipeline_result",
-                instruction: args.processing_instruction,
+                instruction: args.processing_instruction || args.instruction || "Processe os dados recebidos",
                 context: actionResult.data,
-                output_format: args.output_format
+                output_format: args.output_format || ''
             };
             
             const processedResult = await executeSwarmAgent(apiKey, processingTask, model);
@@ -755,9 +786,20 @@ app.delete('/api/admin/chat/:id', auth, adminOnly, async (req, res) => {
 app.get('/api/admin/config', auth, adminOnly, async (req, res) => {
     await connectDB();
     const apiKeyConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
+    const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
     res.json({
         hasGlobalApiKey: !!apiKeyConfig?.value,
-        globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null
+        globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null,
+        defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
+    });
+});
+
+// Endpoint público para obter modelo padrão (usado pelo frontend)
+app.get('/api/config/default-model', async (req, res) => {
+    await connectDB();
+    const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
+    res.json({
+        defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
     });
 });
 
@@ -775,6 +817,27 @@ app.post('/api/admin/config/apikey', auth, adminOnly, async (req, res) => {
         success: true, 
         hasGlobalApiKey: !!apiKey,
         globalApiKeyPreview: apiKey ? '****' + apiKey.slice(-4) : null
+    });
+});
+
+// Salvar modelo padrão
+app.post('/api/admin/config/default-model', auth, adminOnly, async (req, res) => {
+    await connectDB();
+    const { model } = req.body;
+    
+    if (!model) {
+        return res.status(400).json({ error: 'Modelo é obrigatório' });
+    }
+    
+    await GlobalConfig.findOneAndUpdate(
+        { key: 'DEFAULT_MODEL' },
+        { key: 'DEFAULT_MODEL', value: model },
+        { upsert: true }
+    );
+    
+    res.json({ 
+        success: true, 
+        defaultModel: model
     });
 });
 
