@@ -1,43 +1,60 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { User, MessageSquare, Wrench, X } from 'lucide-react';
+
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
 export default function AdminDashboard() {
-  const [data, setData] = useState({ users: [], tools: [], systemPrompt: '' });
-  const [prompt, setPrompt] = useState('');
-  const [tab, setTab] = useState('users');
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userDetails, setUserDetails] = useState(null);
+  const [viewingChat, setViewingChat] = useState(null);
+  const token = localStorage.getItem('token');
 
-  const fetch = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(API_URL + '/admin/stats', { headers: { Authorization: 'Bearer ' + token } });
-      setData(res.data); setPrompt(res.data.systemPrompt);
-    } catch(e) { alert('Erro loading admin'); }
-  };
-  useEffect(() => { fetch(); }, []);
+  useEffect(() => { axios.get(API_URL + '/admin/users', { headers: { Authorization: 'Bearer ' + token } }).then(res => setUsers(res.data)); }, []);
 
-  const save = async () => {
-    await axios.post(API_URL + '/admin/config', { key: 'admin_system_prompt', value: prompt }, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } });
-    alert('Salvo!');
+  const selectUser = async (id) => {
+    setSelectedUser(id); setViewingChat(null);
+    const res = await axios.get(API_URL + '/admin/user/' + id, { headers: { Authorization: 'Bearer ' + token } });
+    setUserDetails(res.data);
   };
-  const delTool = async (id) => {
-    if(confirm('Apagar?')) { await axios.delete(API_URL + '/admin/tool/' + id, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }); fetch(); }
+
+  const openChat = async (chatId) => {
+    const res = await axios.get(API_URL + '/admin/chat/' + chatId, { headers: { Authorization: 'Bearer ' + token } });
+    setViewingChat(res.data);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 text-black p-4">
-      <div className="max-w-6xl mx-auto">
-          <div className="flex justify-between mb-6"><h1 className="text-3xl font-bold">Admin V2</h1><a href="/" className="text-blue-600">Voltar</a></div>
-          <div className="flex gap-4 mb-6 border-b pb-2">
-             <button onClick={()=>setTab('users')} className={tab==='users'?'text-blue-600 font-bold':''}>USERS</button>
-             <button onClick={()=>setTab('tools')} className={tab==='tools'?'text-blue-600 font-bold':''}>TOOLS ({data.tools.length})</button>
-             <button onClick={()=>setTab('config')} className={tab==='config'?'text-blue-600 font-bold':''}>SYSTEM PROMPT</button>
-          </div>
-          {tab === 'users' && <div className="bg-white p-4 rounded">{data.users.map(u => <div key={u._id} className="border-b p-2 flex justify-between"><span>{u.username} ({u.role})</span><span>Reqs: {u.usage?.requests||0}</span></div>)}</div>}
-          {tab === 'tools' && <div className="grid gap-4 md:grid-cols-2">{data.tools.map(t => <div key={t._id} className="bg-white p-4 rounded border shadow"><div className="flex justify-between"><h3 className="font-bold text-blue-600">{t.name}</h3><button onClick={()=>delTool(t._id)} className="text-red-500 text-xs border border-red-200 p-1">DEL</button></div><p className="text-xs text-gray-500">By {t.userId?.username}</p><p className="italic text-sm my-2">{t.description}</p><pre className="bg-black text-green-400 p-2 text-xs overflow-auto">{t.code}</pre></div>)}</div>}
-          {tab === 'config' && <div className="bg-white p-6 rounded"><h3 className="font-bold">Prompt Global (Invisível)</h3><textarea className="w-full h-40 p-2 border my-4" value={prompt} onChange={e => setPrompt(e.target.value)} /><button onClick={save} className="bg-green-600 text-white px-4 py-2 rounded">SALVAR</button></div>}
+    <div className="min-h-screen bg-gray-100 text-black flex font-sans">
+      <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto hidden md:block">
+        <div className="p-4 border-b font-bold text-lg">Usuários</div>
+        {users.map(u => (
+            <div key={u._id} onClick={() => selectUser(u._id)} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedUser === u._id ? 'bg-blue-50 border-l-4 border-blue-600' : ''}`}>
+                <div className="font-bold flex items-center gap-2"><User size={16}/> {u.username}</div>
+                <div className="text-xs text-gray-500">{u.role} | Reqs: {u.usage?.requests || 0}</div>
+            </div>
+        ))}
+        <div className="p-4"><a href="/" className="text-blue-600 underline">Voltar ao Chat</a></div>
       </div>
+      <div className="flex-1 bg-gray-50 p-6 overflow-y-auto">
+        {!userDetails ? <div className="text-gray-400 text-center mt-20">Selecione um usuário.</div> : (
+            <div>
+                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><User className="text-blue-600"/> {userDetails.user.username}</h1>
+                <div className="mb-8"><h2 className="font-bold text-lg mb-4 flex items-center gap-2"><Wrench size={20}/> Ferramentas</h2>{userDetails.tools.length===0?<p className="text-gray-500 italic">Nenhuma.</p>:<div className="grid grid-cols-1 gap-4">{userDetails.tools.map(t=><div key={t._id} className="bg-white p-3 rounded shadow border"><div className="font-bold text-blue-600">{t.name}</div><pre className="bg-gray-900 text-green-400 text-[10px] p-2 mt-2 rounded overflow-auto max-h-20">{t.code}</pre></div>)}</div>}</div>
+                <div><h2 className="font-bold text-lg mb-4 flex items-center gap-2"><MessageSquare size={20}/> Chats</h2>{userDetails.chats.length===0?<p className="text-gray-500 italic">Nenhum.</p>:<div className="space-y-2">{userDetails.chats.map(c=><div key={c._id} onClick={()=>openChat(c._id)} className="bg-white p-3 rounded border hover:bg-blue-50 cursor-pointer flex justify-between items-center"><div><div className="font-bold">{c.title}</div><div className="text-xs text-gray-500">{c.model}</div></div><div className="text-xs text-gray-400">{new Date(c.updatedAt).toLocaleDateString()}</div></div>)}</div>}</div>
+            </div>
+        )}
+      </div>
+      {viewingChat && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl h-[80vh] flex flex-col">
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg"><div><h3 className="font-bold text-lg">{viewingChat.title}</h3><div className="text-xs text-gray-500">Model: {viewingChat.model}</div></div><button onClick={() => setViewingChat(null)}><X/></button></div>
+                <div className="p-4 bg-yellow-50 text-xs border-b"><span className="font-bold">System Prompt:</span> {viewingChat.userSystemPrompt || "Nenhum"}</div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-100">{viewingChat.messages.map((m, i) => (<div key={i} className={`p-3 rounded max-w-[80%] text-sm ${m.role === 'user' ? 'bg-blue-600 text-white ml-auto' : 'bg-white border text-black'}`}><div className="text-[10px] opacity-70 uppercase mb-1 font-bold">{m.role}</div><pre className="whitespace-pre-wrap font-sans">{m.content}</pre></div>))}</div>
+            </div>
+        </div>
+      )}
     </div>
   );
 }

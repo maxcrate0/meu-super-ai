@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Cpu, Settings, LogOut, Terminal, Wrench } from 'lucide-react';
+import { Cpu, Settings, LogOut, Terminal, Wrench, Plus, MessageSquare, Trash2, Edit2, X, Check } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
 export default function ChatInterface({ user }) {
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,52 +16,123 @@ export default function ChatInterface({ user }) {
   const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-exp:free");
   const [userSystemPrompt, setUserSystemPrompt] = useState("");
   const [showConfig, setShowConfig] = useState(false);
+  const [editingChatId, setEditingChatId] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const token = localStorage.getItem('token');
 
   useEffect(() => {
-    axios.get(API_URL + '/models').then(res => { if(res.data.length) { setModels(res.data); setSelectedModel(res.data[0].id); } }).catch(()=>{});
+    axios.get(API_URL + '/models').then(res => { if(res.data.length) setModels(res.data); }).catch(()=>{});
+    loadChats();
   }, []);
 
-  const send = async () => {
+  const loadChats = async () => {
+    try {
+        const res = await axios.get(API_URL + '/chats', { headers: { Authorization: 'Bearer ' + token } });
+        setChats(res.data);
+    } catch(e) {}
+  };
+
+  const selectChat = async (id) => {
+    setLoading(true); setActiveChatId(id); setMode('chat');
+    try {
+        const res = await axios.get(API_URL + '/chats/' + id, { headers: { Authorization: 'Bearer ' + token } });
+        setMessages(res.data.messages || []);
+        setSelectedModel(res.data.model || "google/gemini-2.0-flash-exp:free");
+        setUserSystemPrompt(res.data.userSystemPrompt || "");
+    } catch(e) { alert('Erro ao carregar chat'); }
+    setLoading(false);
+  };
+
+  const createNewChat = () => { setActiveChatId(null); setMessages([]); setMode('chat'); };
+
+  const deleteChat = async (e, id) => {
+    e.stopPropagation();
+    if(!confirm("Apagar chat?")) return;
+    await axios.delete(API_URL + '/chats/' + id, { headers: { Authorization: 'Bearer ' + token } });
+    loadChats(); if(activeChatId === id) createNewChat();
+  };
+
+  const saveRename = async () => {
+    await axios.patch(API_URL + '/chats/' + editingChatId, { title: editTitle }, { headers: { Authorization: 'Bearer ' + token } });
+    setEditingChatId(null); loadChats();
+  };
+
+  const sendMessage = async () => {
     if (!input) return;
+    let currentChatId = activeChatId;
+    
+    // Cria chat no primeiro envio se for novo
+    if (!currentChatId && mode === 'chat') {
+        try {
+            const res = await axios.post(API_URL + '/chats', { model: selectedModel, systemPrompt: userSystemPrompt }, { headers: { Authorization: 'Bearer ' + token } });
+            currentChatId = res.data._id; setActiveChatId(currentChatId); loadChats();
+        } catch(e) { return alert("Erro ao criar chat"); }
+    }
+
     const newMsgs = [...messages, { role: 'user', content: input }];
     setMessages(newMsgs); setInput(''); setLoading(true);
+
     try {
-      const token = localStorage.getItem('token');
-      const payload = mode === 'swarm' ? { task: input, model: selectedModel } : { messages: newMsgs, model: selectedModel, userSystemPrompt, toolsEnabled: true };
-      const res = await axios.post(API_URL + (mode === 'swarm' ? '/swarm' : '/chat'), payload, { headers: { Authorization: 'Bearer ' + token } });
+      const endpoint = mode === 'swarm' ? '/swarm' : '/chat';
+      const payload = mode === 'swarm' ? { task: input, model: selectedModel } : { chatId: currentChatId, messages: newMsgs, model: selectedModel, userSystemPrompt, toolsEnabled: true };
+      const res = await axios.post(API_URL + endpoint, payload, { headers: { Authorization: 'Bearer ' + token } });
       const reply = mode === 'swarm' ? { role: 'assistant', content: '[SWARM]:\n' + res.data.content } : res.data;
       setMessages([...newMsgs, reply]);
+      if(mode === 'chat') loadChats();
     } catch (err) { setMessages([...newMsgs, { role: 'assistant', content: 'Erro: ' + (err.response?.data?.error || err.message) }]); }
     setLoading(false);
   };
 
   return (
     <div className="flex h-screen bg-gray-900 text-white font-sans">
-      <div className="w-16 md:w-64 bg-gray-800 flex flex-col border-r border-gray-700">
-        <div className="hidden md:block p-4 font-bold text-blue-400">Gemini V2</div>
-        <div className="flex-1 p-2 space-y-2">
-            <button onClick={() => setMode('chat')} className={`p-3 w-full rounded flex gap-2 ${mode==='chat'?'bg-blue-600':''}`}><Terminal size={20}/><span className="hidden md:block">Chat</span></button>
-            <button onClick={() => setMode('swarm')} className={`p-3 w-full rounded flex gap-2 ${mode==='swarm'?'bg-purple-600':''}`}><Cpu size={20}/><span className="hidden md:block">Swarm</span></button>
-            <button onClick={() => setShowConfig(!showConfig)} className="p-3 w-full rounded flex gap-2 hover:bg-gray-700"><Wrench size={20}/><span className="hidden md:block">Config</span></button>
+      {/* Sidebar Desktop */}
+      <div className="w-72 bg-gray-800 flex flex-col border-r border-gray-700 hidden md:flex">
+        <div className="p-4 border-b border-gray-700">
+            <button onClick={createNewChat} className="w-full bg-blue-600 p-2 rounded flex items-center justify-center gap-2 hover:bg-blue-500"><Plus size={16}/> Novo Chat</button>
+            <button onClick={() => setMode('swarm')} className={`mt-2 w-full p-2 rounded flex items-center justify-center gap-2 ${mode==='swarm'?'bg-purple-600':'bg-gray-700'}`}><Cpu size={16}/> Modo Swarm</button>
         </div>
-        {user.role === 'admin' && <a href="/admin" className="p-3 text-yellow-400 flex gap-2"><Settings size={20}/><span className="hidden md:block">Admin</span></a>}
-        <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="p-3 text-red-400 flex gap-2"><LogOut size={20}/><span className="hidden md:block">Sair</span></button>
+        <div className="flex-1 overflow-y-auto p-2">
+            <div className="text-xs text-gray-500 mb-2 px-2">HISTÓRICO</div>
+            {chats.map(chat => (
+                <div key={chat._id} onClick={() => selectChat(chat._id)} className={`group p-3 rounded mb-1 cursor-pointer flex justify-between items-center ${activeChatId === chat._id ? 'bg-gray-700' : 'hover:bg-gray-750'}`}>
+                    {editingChatId === chat._id ? (
+                        <div className="flex gap-1 w-full" onClick={e=>e.stopPropagation()}><input className="bg-black text-xs w-full p-1 rounded" autoFocus value={editTitle} onChange={e=>setEditTitle(e.target.value)} /><button onClick={saveRename} className="text-green-400"><Check size={14}/></button></div>
+                    ) : (
+                        <>
+                            <div className="flex items-center gap-2 overflow-hidden"><MessageSquare size={14} className="text-gray-400 shrink-0"/><span className="text-sm truncate">{chat.title}</span></div>
+                            <div className="hidden group-hover:flex gap-1">
+                                <button onClick={(e)=>{e.stopPropagation();setEditingChatId(chat._id);setEditTitle(chat.title)}} className="text-gray-400 hover:text-white"><Edit2 size={12}/></button>
+                                <button onClick={(e)=>deleteChat(e, chat._id)} className="text-gray-400 hover:text-red-400"><Trash2 size={12}/></button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            ))}
+        </div>
+        <div className="p-4 border-t border-gray-700">
+            {user.role === 'admin' && <a href="/admin" className="flex items-center gap-2 text-yellow-500 mb-3"><Settings size={16}/> Admin</a>}
+            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="flex items-center gap-2 text-red-400"><LogOut size={16}/> Sair</button>
+        </div>
       </div>
-      <div className="flex-1 flex flex-col relative">
+
+      <div className="flex-1 flex flex-col relative h-full">
+        <div className="md:hidden bg-gray-800 p-3 flex justify-between items-center border-b border-gray-700"><button onClick={createNewChat}><Plus/></button><span className="font-bold">Gemini V3</span><button onClick={() => setMode('swarm')}><Cpu/></button></div>
+        <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center text-xs">
+            <div className="flex gap-4"><span className="text-gray-400">Modelo: {models.find(m=>m.id===selectedModel)?.name || 'Carregando...'}</span>{mode === 'swarm' && <span className="text-purple-400 font-bold">SWARM</span>}</div>
+            <button onClick={() => setShowConfig(!showConfig)} className="flex items-center gap-1 hover:text-blue-400"><Wrench size={14}/> Config</button>
+        </div>
         {showConfig && (
-            <div className="bg-gray-800 p-4 border-b border-gray-700 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="text-xs text-gray-400">MODELO</label><select className="w-full bg-gray-900 p-2 rounded" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>{models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
-                <div><label className="text-xs text-gray-400">SEU SYSTEM PROMPT</label><input className="w-full bg-gray-900 p-2 rounded" placeholder="Ex: Seja sarcástico" value={userSystemPrompt} onChange={e => setUserSystemPrompt(e.target.value)} /></div>
+            <div className="bg-gray-800 p-4 border-b border-gray-700 grid grid-cols-1 gap-4 absolute w-full z-10 shadow-xl">
+                <div><label className="text-xs text-gray-400">MODELO</label><select className="w-full bg-gray-900 p-2 rounded border border-gray-600" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>{models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
+                <div><label className="text-xs text-gray-400">SYSTEM PROMPT</label><input className="w-full bg-gray-900 p-2 rounded border border-gray-600" value={userSystemPrompt} onChange={e => setUserSystemPrompt(e.target.value)} /></div>
             </div>
         )}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((m, i) => (<div key={i} className={`p-3 rounded-lg max-w-4xl ${m.role === 'user' ? 'bg-blue-700 ml-auto' : 'bg-gray-700'}`}><pre className="whitespace-pre-wrap text-sm font-sans">{m.content}</pre></div>))}
-          {loading && <div className="text-blue-400 animate-pulse text-center">Processando...</div>}
+          {messages.length === 0 && <div className="text-center text-gray-500 mt-20"><h2 className="text-2xl font-bold">{mode==='swarm'?'Swarm':'Novo Chat'}</h2></div>}
+          {messages.map((m, i) => (<div key={i} className={`p-3 rounded-lg max-w-4xl shadow ${m.role === 'user' ? 'bg-blue-700 ml-auto' : 'bg-gray-700'}`}><div className="text-[10px] opacity-50 uppercase font-bold mb-1">{m.role}</div><pre className="whitespace-pre-wrap text-sm font-sans">{m.content}</pre></div>))}
+          {loading && <div className="text-blue-400 animate-pulse text-center text-sm">IA Processando...</div>}
         </div>
-        <div className="p-4 bg-gray-800 flex gap-2">
-            <input className="flex-1 bg-gray-900 p-3 rounded" placeholder="Mensagem..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} />
-            <button onClick={send} disabled={loading} className="bg-blue-600 px-6 rounded font-bold">Enviar</button>
-        </div>
+        <div className="p-4 bg-gray-800"><div className="flex gap-2 max-w-5xl mx-auto"><input className="flex-1 bg-gray-900 p-3 rounded-lg border border-gray-600 outline-none" placeholder="Mensagem..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()}/><button onClick={sendMessage} disabled={loading} className="bg-blue-600 px-6 rounded-lg font-bold">Enviar</button></div></div>
       </div>
     </div>
   );
