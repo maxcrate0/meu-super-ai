@@ -5,6 +5,9 @@ import { Cpu, Settings, LogOut, Terminal, Wrench, Plus, MessageSquare, Trash2, E
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
+// Configuração Global do Axios para não desistir fácil
+axios.defaults.timeout = 120000; // 2 minutos de tolerância
+
 export default function ChatInterface({ user }) {
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -13,7 +16,7 @@ export default function ChatInterface({ user }) {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('chat');
   
-  // --- LISTA CORRIGIDA COM SEUS MODELOS ---
+  // SEUS MODELOS
   const [models, setModels] = useState([
       {id:"openai/gpt-oss-20b:free", name:"GPT OSS 20B (Free)"},
       {id:"x-ai/grok-4.1-fast:free", name:"Grok 4.1 Fast (Free)"},
@@ -31,20 +34,7 @@ export default function ChatInterface({ user }) {
 
   const token = localStorage.getItem('token');
 
-  useEffect(() => {
-    // Busca do servidor, mas se ele não responder ou mandar lista vazia, mantemos os seus modelos
-    axios.get(API_URL + '/models')
-        .then(res => { 
-            if(res.data && res.data.length > 0) {
-                // Opcional: Você pode comentar a linha abaixo se quiser FORÇAR que apareçam APENAS os seus modelos hardcoded
-                // e ignorar o que vem da API do OpenRouter.
-                // setModels(res.data); 
-            }
-        })
-        .catch(e => console.log("Usando modelos manuais"));
-    
-    loadChats();
-  }, []);
+  useEffect(() => { loadChats(); }, []);
 
   const loadChats = async () => {
     try {
@@ -54,9 +44,7 @@ export default function ChatInterface({ user }) {
   };
 
   const selectChat = async (id) => {
-    setLoading(true);
-    setActiveChatId(id);
-    setMode('chat');
+    setLoading(true); setActiveChatId(id); setMode('chat');
     try {
         const res = await axios.get(API_URL + '/chats/' + id, { headers: { Authorization: 'Bearer ' + token } });
         setMessages(res.data.messages || []);
@@ -66,66 +54,58 @@ export default function ChatInterface({ user }) {
     setLoading(false);
   };
 
-  const createNewChat = () => {
-    setActiveChatId(null);
-    setMessages([]);
-    setMode('chat');
-  };
+  const createNewChat = () => { setActiveChatId(null); setMessages([]); setMode('chat'); };
 
   const deleteChat = async (e, id) => {
     e.stopPropagation();
     if(!confirm("Apagar chat?")) return;
     await axios.delete(API_URL + '/chats/' + id, { headers: { Authorization: 'Bearer ' + token } });
-    loadChats();
-    if(activeChatId === id) createNewChat();
-  };
-
-  const startRename = (e, chat) => {
-    e.stopPropagation();
-    setEditingChatId(chat._id);
-    setEditTitle(chat.title);
+    loadChats(); if(activeChatId === id) createNewChat();
   };
 
   const saveRename = async () => {
     await axios.patch(API_URL + '/chats/' + editingChatId, { title: editTitle }, { headers: { Authorization: 'Bearer ' + token } });
-    setEditingChatId(null);
-    loadChats();
+    setEditingChatId(null); loadChats();
   };
 
   const sendMessage = async () => {
     if (!input) return;
-    
     let currentChatId = activeChatId;
     if (!currentChatId && mode === 'chat') {
         try {
             const res = await axios.post(API_URL + '/chats', { model: selectedModel, systemPrompt: userSystemPrompt }, { headers: { Authorization: 'Bearer ' + token } });
-            currentChatId = res.data._id;
-            setActiveChatId(currentChatId);
-            loadChats();
+            currentChatId = res.data._id; setActiveChatId(currentChatId); loadChats();
         } catch(e) { return alert("Erro ao criar chat"); }
     }
 
     const newMsgs = [...messages, { role: 'user', content: input }];
-    setMessages(newMsgs);
-    setInput('');
-    setLoading(true);
+    setMessages(newMsgs); setInput(''); setLoading(true);
 
     try {
       const endpoint = mode === 'swarm' ? '/swarm' : '/chat';
-      const payload = mode === 'swarm' 
-        ? { task: input, model: selectedModel } 
-        : { chatId: currentChatId, messages: newMsgs, model: selectedModel, userSystemPrompt, toolsEnabled: true };
-
-      const res = await axios.post(API_URL + endpoint, payload, { headers: { Authorization: 'Bearer ' + token } });
-
-      const reply = mode === 'swarm' 
-        ? { role: 'assistant', content: '[SWARM]:\\n' + res.data.content }
-        : res.data;
-
+      const payload = mode === 'swarm' ? { task: input, model: selectedModel } : { chatId: currentChatId, messages: newMsgs, model: selectedModel, userSystemPrompt, toolsEnabled: true };
+      
+      const res = await axios.post(API_URL + endpoint, payload, { 
+          headers: { Authorization: 'Bearer ' + token },
+          timeout: 120000 // Timeout explícito de 2 minutos na requisição
+      });
+      const reply = mode === 'swarm' ? { role: 'assistant', content: '[SWARM]:\\n' + res.data.content } : res.data;
+      
       setMessages([...newMsgs, reply]);
       if(mode === 'chat') loadChats();
     } catch (err) {
-      setMessages([...newMsgs, { role: 'assistant', content: 'Erro: ' + (err.response?.data?.error || err.message) }]);
+      console.error(err);
+      // Tratamento de erro detalhado
+      let errorMsg = "Erro desconhecido";
+      if (err.code === 'ECONNABORTED') {
+          errorMsg = "Tempo limite excedido (Timeout). A IA demorou muito para responder.";
+      } else if (err.response) {
+          errorMsg = err.response.data?.error || JSON.stringify(err.response.data);
+      } else {
+          errorMsg = err.message;
+      }
+      
+      setMessages([...newMsgs, { role: 'assistant', content: `❌ ERRO: ${errorMsg}\n\n(Tente novamente)` }]);
     }
     setLoading(false);
   };
@@ -137,92 +117,44 @@ export default function ChatInterface({ user }) {
             <button onClick={createNewChat} className="w-full bg-blue-600 p-2 rounded flex items-center justify-center gap-2 hover:bg-blue-500 transition"><Plus size={16}/> Novo Chat</button>
             <button onClick={() => setMode('swarm')} className={`mt-2 w-full p-2 rounded flex items-center justify-center gap-2 transition ${mode==='swarm'?'bg-purple-600':'bg-gray-700 hover:bg-gray-600'}`}><Cpu size={16}/> Modo Swarm</button>
         </div>
-        
         <div className="flex-1 overflow-y-auto p-2">
             <div className="text-xs text-gray-500 mb-2 px-2">HISTÓRICO</div>
             {chats.map(chat => (
-                <div key={chat._id} onClick={() => selectChat(chat._id)} 
-                     className={`group p-3 rounded mb-1 cursor-pointer flex justify-between items-center transition ${activeChatId === chat._id ? 'bg-gray-700' : 'hover:bg-gray-750'}`}>
-                    
+                <div key={chat._id} onClick={() => selectChat(chat._id)} className={`group p-3 rounded mb-1 cursor-pointer flex justify-between items-center ${activeChatId === chat._id ? 'bg-gray-700' : 'hover:bg-gray-750'}`}>
                     {editingChatId === chat._id ? (
-                        <div className="flex gap-1 w-full" onClick={e=>e.stopPropagation()}>
-                            <input className="bg-black text-xs w-full p-1 rounded" autoFocus value={editTitle} onChange={e=>setEditTitle(e.target.value)} />
-                            <button onClick={saveRename} className="text-green-400"><Check size={14}/></button>
-                            <button onClick={()=>setEditingChatId(null)} className="text-red-400"><X size={14}/></button>
-                        </div>
+                        <div className="flex gap-1 w-full" onClick={e=>e.stopPropagation()}><input className="bg-black text-xs w-full p-1 rounded" autoFocus value={editTitle} onChange={e=>setEditTitle(e.target.value)} /><button onClick={saveRename} className="text-green-400"><Check size={14}/></button></div>
                     ) : (
                         <>
                             <div className="flex items-center gap-2 overflow-hidden"><MessageSquare size={14} className="text-gray-400 shrink-0"/><span className="text-sm truncate">{chat.title}</span></div>
-                            <div className="hidden group-hover:flex gap-1">
-                                <button onClick={(e)=>startRename(e, chat)} className="text-gray-400 hover:text-white"><Edit2 size={12}/></button>
-                                <button onClick={(e)=>deleteChat(e, chat._id)} className="text-gray-400 hover:text-red-400"><Trash2 size={12}/></button>
-                            </div>
+                            <div className="hidden group-hover:flex gap-1"><button onClick={(e)=>{e.stopPropagation();setEditingChatId(chat._id);setEditTitle(chat.title)}} className="text-gray-400 hover:text-white"><Edit2 size={12}/></button><button onClick={(e)=>deleteChat(e, chat._id)} className="text-gray-400 hover:text-red-400"><Trash2 size={12}/></button></div>
                         </>
                     )}
                 </div>
             ))}
         </div>
-
         <div className="p-4 border-t border-gray-700">
-            {user.role === 'admin' && <a href="/admin" className="flex items-center gap-2 text-yellow-500 mb-3 hover:underline"><Settings size={16}/> Admin</a>}
-            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="flex items-center gap-2 text-red-400 hover:text-red-300"><LogOut size={16}/> Sair</button>
+            {user.role === 'admin' && <a href="/admin" className="flex items-center gap-2 text-yellow-500 mb-3"><Settings size={16}/> Admin</a>}
+            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="flex items-center gap-2 text-red-400"><LogOut size={16}/> Sair</button>
         </div>
       </div>
-
       <div className="flex-1 flex flex-col relative h-full">
-        <div className="md:hidden bg-gray-800 p-3 flex justify-between items-center border-b border-gray-700">
-             <button onClick={createNewChat}><Plus/></button>
-             <span className="font-bold">Gemini V3</span>
-             <button onClick={() => setMode('swarm')}><Cpu/></button>
-        </div>
-
+        <div className="md:hidden bg-gray-800 p-3 flex justify-between items-center border-b border-gray-700"><button onClick={createNewChat}><Plus/></button><span className="font-bold">Gemini V3</span><button onClick={() => setMode('swarm')}><Cpu/></button></div>
         <div className="bg-gray-800 border-b border-gray-700 p-2 flex justify-between items-center text-xs">
-            <div className="flex gap-4">
-                <span className="text-gray-400">Modelo: {models.find(m=>m.id===selectedModel)?.name || selectedModel}</span>
-                {mode === 'swarm' && <span className="text-purple-400 font-bold">SWARM ATIVO</span>}
-            </div>
+            <div className="flex gap-4"><span className="text-gray-400">Modelo: {models.find(m=>m.id===selectedModel)?.name || selectedModel}</span>{mode === 'swarm' && <span className="text-purple-400 font-bold">SWARM</span>}</div>
             <button onClick={() => setShowConfig(!showConfig)} className="flex items-center gap-1 hover:text-blue-400"><Wrench size={14}/> Config</button>
         </div>
-
         {showConfig && (
             <div className="bg-gray-800 p-4 border-b border-gray-700 grid grid-cols-1 gap-4 absolute w-full z-10 shadow-xl">
-                <div>
-                    <label className="text-xs text-gray-400 block mb-1">MODELO DE IA</label>
-                    <select className="w-full bg-gray-900 p-2 rounded border border-gray-600 text-sm" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
-                        {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="text-xs text-gray-400 block mb-1">SYSTEM PROMPT</label>
-                    <textarea className="w-full bg-gray-900 p-2 rounded border border-gray-600 text-sm h-20"
-                        placeholder="Ex: Seja sarcástico..."
-                        value={userSystemPrompt} onChange={e => setUserSystemPrompt(e.target.value)} />
-                </div>
+                <div><label className="text-xs text-gray-400">MODELO</label><select className="w-full bg-gray-900 p-2 rounded border border-gray-600" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>{models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
+                <div><label className="text-xs text-gray-400">SYSTEM PROMPT</label><input className="w-full bg-gray-900 p-2 rounded border border-gray-600" value={userSystemPrompt} onChange={e => setUserSystemPrompt(e.target.value)} /></div>
             </div>
         )}
-
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
-             <div className="text-center text-gray-500 mt-20">
-                <h2 className="text-2xl font-bold mb-2">{mode === 'swarm' ? 'Modo Swarm (30x)' : 'Novo Chat'}</h2>
-                <p>{mode === 'swarm' ? 'Digite uma tarefa complexa.' : 'Comece a conversar.'}</p>
-             </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} className={`p-3 rounded-lg max-w-4xl shadow ${m.role === 'user' ? 'bg-blue-700 ml-auto' : 'bg-gray-700'}`}>
-              <div className="text-[10px] opacity-50 uppercase font-bold mb-1">{m.role}</div>
-              <pre className="whitespace-pre-wrap text-sm font-sans">{m.content}</pre>
-            </div>
-          ))}
+          {messages.length === 0 && <div className="text-center text-gray-500 mt-20"><h2 className="text-2xl font-bold">{mode==='swarm'?'Swarm':'Novo Chat'}</h2></div>}
+          {messages.map((m, i) => (<div key={i} className={`p-3 rounded-lg max-w-4xl shadow ${m.role === 'user' ? 'bg-blue-700 ml-auto' : 'bg-gray-700'}`}><div className="text-[10px] opacity-50 uppercase font-bold mb-1">{m.role}</div><pre className="whitespace-pre-wrap text-sm font-sans">{m.content}</pre></div>))}
           {loading && <div className="text-blue-400 animate-pulse text-center text-sm">IA Processando...</div>}
         </div>
-
-        <div className="p-4 bg-gray-800">
-            <div className="flex gap-2 max-w-5xl mx-auto">
-                <input className="flex-1 bg-gray-900 p-3 rounded-lg border border-gray-600 focus:border-blue-500 outline-none" placeholder="Digite sua mensagem..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()}/>
-                <button onClick={sendMessage} disabled={loading} className="bg-blue-600 px-6 rounded-lg font-bold hover:bg-blue-500 disabled:opacity-50">Enviar</button>
-            </div>
-        </div>
+        <div className="p-4 bg-gray-800"><div className="flex gap-2 max-w-5xl mx-auto"><input className="flex-1 bg-gray-900 p-3 rounded-lg border border-gray-600 outline-none" placeholder="Mensagem..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()}/><button onClick={sendMessage} disabled={loading} className="bg-blue-600 px-6 rounded-lg font-bold">Enviar</button></div></div>
       </div>
     </div>
   );
