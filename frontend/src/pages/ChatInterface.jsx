@@ -17,13 +17,7 @@ export default function ChatInterface({ user }) {
   const [mode, setMode] = useState('chat');
   
   // SEUS MODELOS
-  const [models, setModels] = useState([
-      {id:"openai/gpt-oss-20b:free", name:"GPT OSS 20B (Free)"},
-      {id:"x-ai/grok-4.1-fast:free", name:"Grok 4.1 Fast (Free)"},
-      {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
-      {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
-      {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3 (Free)"}
-  ]);
+  const [models, setModels] = useState([]);
   
   const [selectedModel, setSelectedModel] = useState("openai/gpt-oss-20b:free");
   const [userSystemPrompt, setUserSystemPrompt] = useState("");
@@ -34,7 +28,29 @@ export default function ChatInterface({ user }) {
 
   const token = localStorage.getItem('token');
 
-  useEffect(() => { loadChats(); }, []);
+  useEffect(() => { 
+    loadChats(); 
+    loadModels();
+  }, []);
+
+  const loadModels = async () => {
+    try {
+      const res = await axios.get(API_URL + '/models');
+      setModels(res.data);
+      if (res.data.length > 0 && !res.data.find(m => m.id === selectedModel)) {
+        setSelectedModel(res.data[0].id);
+      }
+    } catch(e) {
+      // Fallback para modelos hardcoded se falhar
+      setModels([
+        {id:"openai/gpt-oss-20b:free", name:"GPT OSS 20B (Free)"},
+        {id:"x-ai/grok-4.1-fast:free", name:"Grok 4.1 Fast (Free)"},
+        {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
+        {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
+        {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3 (Free)"}
+      ]);
+    }
+  };
 
   const loadChats = async () => {
     try {

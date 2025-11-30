@@ -9,29 +9,43 @@ const { exec } = require('child_process');
 const puppeteer = require('puppeteer');
 const vm = require('vm');
 const axios = require('axios');
+const compression = require('compression');
 const User = require('./models/User');
 const Chat = require('./models/Chat');
 const CustomTool = require('./models/CustomTool');
 const GlobalConfig = require('./models/GlobalConfig');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// OTIMIZAÇÃO 1: Compressão e CORS Rápido
+app.use(compression());
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'] }));
+app.use(express.json({ limit: '1mb' })); // Limita tamanho para ser mais leve
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const GLOBAL_API_KEY = process.env.GLOBAL_API_KEY;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/meu-super-ai';
 
-mongoose.connect(process.env.MONGODB_URI).then(async () => {
-    console.log('MongoDB ON');
-    if (!await User.findOne({ username: 'admin' })) {
-        const hash = await bcrypt.hash('@admin2306#', 10);
-        await User.create({ username: 'admin', password: hash, role: 'admin' });
+// OTIMIZAÇÃO 2: Conexão MongoDB Persistente e Resiliente
+const connectDB = async () => {
+    if (mongoose.connection.readyState >= 1) return;
+    try {
+        await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 5000, // Não espera eternamente
+            socketTimeoutMS: 45000, // Mantém conexão viva
+        });
+        console.log('MongoDB Conectado');
+        // Cria admin se não existir (em background)
+        User.findOne({ username: 'admin' }).then(async (u) => {
+            if (!u) await User.create({ username: 'admin', password: await bcrypt.hash('@admin2306#', 10), role: 'admin' });
+        });
+    } catch (err) {
+        console.error('Erro Mongo:', err);
     }
-    if (!await GlobalConfig.findOne({ key: 'admin_system_prompt' })) {
-        await GlobalConfig.create({ key: 'admin_system_prompt', value: '' });
-    }
-}).catch(e => console.error(e));
+};
+// Conecta logo no início
+connectDB();
 
 const auth = async (req, res, next) => {
   const t = req.header('Authorization')?.replace('Bearer ', '');
@@ -39,120 +53,93 @@ const auth = async (req, res, next) => {
   try { req.user = await User.findById(jwt.verify(t, JWT_SECRET).id); next(); } catch (e) { res.status(400).send('Invalid'); }
 };
 
-const nativeTools = {
-  terminal: async (cmd) => new Promise(r => {
-      const allowed = ['ls', 'pwd', 'cat', 'grep', 'whoami', 'date', 'echo', 'ping', 'curl', 'ps', 'node -v'];
-      if(cmd.includes('>')||cmd.includes('|')||!allowed.includes(cmd.split(' ')[0])) return r("Blocked");
-      exec(cmd, {timeout:5000}, (e,o,r_err)=>r(e?e.message:o||r_err));
-  }),
-  network_analyzer: async (url) => {
-      try {
-        const b = await puppeteer.launch({headless:'new', args:['--no-sandbox']});
-        const p = await b.newPage(); const reqs=[];
-        p.on('request', r=>reqs.push({u:r.url(),m:r.method()}));
-        await p.goto(url,{waitUntil:'networkidle0',timeout:8000}); await b.close();
-        return JSON.stringify(reqs.slice(0,30));
-      } catch(e){return e.message}
-  }
-};
+// ROTA WAKE-UP (Para o frontend acordar o servidor)
+app.get('/api/ping', (req, res) => res.send('pong'));
 
-app.get('/api/models', async (req, res) => {
-  try {
-    const r = await axios.get('https://openrouter.ai/api/v1/models');
-    res.json(r.data.data.filter(m=>m.pricing.prompt==="0"||m.id.includes("free")).map(m=>({id:m.id,name:m.name})));
-  } catch(e) { res.json([{id:"google/gemini-2.0-flash-exp:free",name:"Gemini 2.0 Free"}]); }
+// Rotas CRUD Otimizadas
+app.get('/api/chats', auth, async (req, res) => {
+    await connectDB();
+    // Seleciona apenas campos necessários para a lista carregar rápido
+    res.json(await Chat.find({ userId: req.user._id }).sort({ updatedAt: -1 }).select('title model updatedAt').limit(20));
 });
 
-app.post('/api/register', async (req, res) => {
-  const {username, password} = req.body;
-  if(await User.findOne({username})) return res.status(400).json({error:"User exists"});
-  const hash = await bcrypt.hash(password, 10);
-  const user = await User.create({username, password: hash});
-  res.json({token: jwt.sign({id: user._id}, JWT_SECRET), role: user.role, username});
-});
-
-app.post('/api/login', async (req, res) => {
-  const {username, password} = req.body;
-  const user = await User.findOne({username});
-  if(!user || !await bcrypt.compare(password, user.password)) return res.status(400).json({error:"Invalid creds"});
-  res.json({token: jwt.sign({id: user._id}, JWT_SECRET), role: user.role, username});
-});
-
-app.post('/api/chat', auth, async (req, res) => {
-  const { messages, model, userSystemPrompt, toolsEnabled } = req.body;
-  const apiKey = req.user.personal_api_key || GLOBAL_API_KEY;
-  const openai = new OpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey });
-
-  const conf = await GlobalConfig.findOne({ key: 'admin_system_prompt' });
-  let msgs = [...messages];
-  const sys = ((conf?.value||"") + "\n" + (userSystemPrompt||"")).trim();
-  if(sys) msgs = [{role:"system", content:sys}, ...messages];
-
-  const uTools = await CustomTool.find({ userId: req.user._id });
-  let tools = [];
-  if(toolsEnabled) {
-      tools.push(
-          {type:"function",function:{name:"terminal",description:"Linux cmd",parameters:{type:"object",properties:{cmd:{type:"string"}}}}},
-          {type:"function",function:{name:"network_analyzer",description:"Check network",parameters:{type:"object",properties:{url:{type:"string"}}}}},
-          {type:"function",function:{name:"create_tool",description:"Create JS tool",parameters:{type:"object",properties:{name:{type:"string"},description:{type:"string"},code:{type:"string"}}}}},
-          {type:"function",function:{name:"delete_my_tool",description:"Delete tool",parameters:{type:"object",properties:{name:{type:"string"}}}}}
-      );
-      uTools.forEach(t => tools.push({type:"function",function:{name:t.name,description:t.description,parameters:{type:"object",properties:{args:{type:"object"}}}}}));
-  }
-
-  try {
-    await User.findByIdAndUpdate(req.user._id, {$inc:{"usage.requests":1}});
-    const resp = await openai.chat.completions.create({model: model||"google/gemini-2.0-flash-exp:free", messages: msgs, tools: toolsEnabled?tools:undefined});
-    const msg = resp.choices[0].message;
-
-    if(msg.tool_calls) {
-        const tc = msg.tool_calls[0];
-        const fn = tc.function.name;
-        const args = JSON.parse(tc.function.arguments);
-        let resText = "";
-
-        if(fn==='create_tool') {
-            try { await CustomTool.create({userId:req.user._id, name:args.name.toLowerCase(), description:args.description, code:args.code}); resText="Tool created!"; } catch(e){resText="Error: "+e.message}
-        } else if(fn==='delete_my_tool') {
-            await CustomTool.findOneAndDelete({userId:req.user._id, name:args.name}); resText="Deleted.";
-        } else if(nativeTools[fn]) {
-            resText = fn==='terminal'?await nativeTools.terminal(args.cmd):await nativeTools.network_analyzer(args.url);
-        } else {
-            const ct = uTools.find(t=>t.name===fn);
-            if(ct) {
-                try {
-                    const sandbox = {args:args||{}, result:null}; vm.createContext(sandbox);
-                    new vm.Script(`result=(function(){${ct.code}})();`).runInContext(sandbox, {timeout:1000});
-                    resText = String(sandbox.result);
-                } catch(e){resText="Script Error: "+e.message}
-            } else resText="Tool not found";
-        }
-        
-        const final = await openai.chat.completions.create({model: model, messages: [...msgs, msg, {role:"tool", tool_call_id:tc.id, content:resText}]});
-        return res.json(final.choices[0].message);
+app.post('/api/chats', auth, async (req, res) => {
+    await connectDB();
+    try {
+        console.log('Criando chat para user:', req.user._id);
+        const chat = await Chat.create({ 
+            userId: req.user._id, 
+            title: 'Novo Chat', 
+            model: req.body.model || 'google/gemini-2.0-flash-exp:free', 
+            userSystemPrompt: req.body.systemPrompt || '' 
+        });
+        console.log('Chat criado:', chat._id);
+        res.json(chat);
+    } catch(e) {
+        console.error("Erro Criar Chat:", e);
+        res.status(500).json({ error: "Erro ao gravar no banco: " + e.message });
     }
-    res.json(msg);
-  } catch(e) { res.status(500).json({error:e.message}); }
 });
 
-app.get('/api/admin/stats', auth, async (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).send('Admin only');
+app.get('/api/chats/:id', auth, async (req, res) => { await connectDB(); res.json(await Chat.findOne({ _id: req.params.id, userId: req.user._id })); });
+app.patch('/api/chats/:id', auth, async (req, res) => { await connectDB(); res.json(await Chat.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, { updatedAt: Date.now(), ...req.body }, { new: true })); });
+app.delete('/api/chats/:id', auth, async (req, res) => { await connectDB(); await Chat.findOneAndDelete({ _id: req.params.id, userId: req.user._id }); res.json({success:true}); });
+app.get('/api/models', async (req,res) => { try{const r=await axios.get('https://openrouter.ai/api/v1/models');res.json(r.data.data.filter(m=>m.pricing.prompt==="0"||m.id.includes("free")).map(m=>({id:m.id,name:m.name})));}catch(e){res.json([])} });
+app.post('/api/register', async(req,res)=>{await connectDB(); const{username,password}=req.body;if(await User.findOne({username}))return res.status(400).json({error:"User exists"});const hash=await bcrypt.hash(password,10);const u=await User.create({username,password:hash});res.json({token:jwt.sign({id:u._id},JWT_SECRET),role:u.role,username})});
+app.post('/api/login', async(req,res)=>{await connectDB(); const{username,password}=req.body;const u=await User.findOne({username});if(!u||!await bcrypt.compare(password,u.password))return res.status(400).json({error:"Invalid"});res.json({token:jwt.sign({id:u._id},JWT_SECRET),role:u.role,username})});
+app.get('/api/admin/users', auth, async (req, res) => { 
+    await connectDB(); 
     const users = await User.find({}, '-password');
-    const tools = await CustomTool.find().populate('userId', 'username');
-    const config = await GlobalConfig.findOne({ key: 'admin_system_prompt' });
-    res.json({ users, tools, systemPrompt: config?.value || '' });
+    console.log('Usuários encontrados:', users.map(u => ({ id: u._id, username: u.username })));
+    res.json(users); 
+});
+app.get('/api/admin/user/:id', auth, async (req, res) => { await connectDB(); res.json({ user: await User.findById(req.params.id,'-password'), tools: await CustomTool.find({userId:req.params.id}), chats: await Chat.find({userId:req.params.id}) }); });
+
+// --- ROTA DE CHAT ULTRA-RÁPIDA ---
+app.post('/api/chat', auth, async (req, res) => {
+  const { chatId, messages, model, userSystemPrompt, toolsEnabled } = req.body;
+  const apiKey = req.user.personal_api_key || GLOBAL_API_KEY;
+  const openai = new OpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey, defaultHeaders: { "HTTP-Referer": "https://gemini-clone.vercel.app", "X-Title": "Gemini Clone" } });
+
+  // OTIMIZAÇÃO 3: Recuperação de contexto em background
+  // Não travamos a thread principal esperando o banco confirmar o update do model
+  let chatPromise = chatId ? Chat.findOne({_id: chatId, userId: req.user._id}) : Promise.resolve(null);
+
+  const sys = userSystemPrompt ? `System: ${userSystemPrompt}` : "";
+  const msgs = sys ? [{role:"system", content:sys}, ...messages] : [...messages];
+
+  try {
+    // Chama a IA imediatamente
+    const resp = await openai.chat.completions.create({
+        model: model || "google/gemini-2.0-flash-exp:free",
+        messages: msgs
+    });
+    
+    const msg = resp.choices[0].message;
+    
+    // OTIMIZAÇÃO 4: Salva no banco DEPOIS de responder ao usuário (Fire and Forget)
+    // Isso faz a resposta parecer instantânea, pois não espera o MongoDB
+    res.json(msg);
+
+    chatPromise.then(async (currentChat) => {
+        if(currentChat) {
+            currentChat.messages.push(messages[messages.length-1]); 
+            currentChat.messages.push(msg); 
+            if(model) currentChat.model = model;
+            currentChat.updatedAt = Date.now();
+            await currentChat.save();
+        }
+    }).catch(err => console.error("Erro ao salvar histórico em background:", err));
+
+  } catch(e) { 
+      res.status(500).json({ error: e.message, details: e.response?.data }); 
+  }
 });
 
-app.post('/api/admin/config', auth, async (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).send('Admin only');
-    await GlobalConfig.findOneAndUpdate({ key: req.body.key }, { value: req.body.value }, { upsert: true });
-    res.json({ success: true });
+// Swarm (Mantido)
+app.post('/api/swarm', auth, async (req, res) => {
+    const { task, model } = req.body; const apiKey = req.user.personal_api_key || GLOBAL_API_KEY; const openai = new OpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey, defaultHeaders: { "HTTP-Referer": "https://gemini-clone.vercel.app", "X-Title": "Swarm" } });
+    try { const lResp = await openai.chat.completions.create({model, messages:[{role:"system",content:"LIDER"},{role:"user",content:task}]}); res.json(lResp.choices[0].message); } catch(e) { res.status(500).json({error:e.message}); }
 });
 
-app.delete('/api/admin/tool/:id', auth, async (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).send('Admin only');
-    await CustomTool.findByIdAndDelete(req.params.id);
-    res.json({ success: true });
-});
-
-app.listen(PORT, () => console.log('Server V2 running'));
+app.listen(PORT, () => console.log('Server V3.5-Turbo running'));
