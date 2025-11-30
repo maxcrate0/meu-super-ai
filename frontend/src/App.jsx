@@ -32,7 +32,7 @@ export default function App() {
         <Route path="/login" element={<Login setUser={setUser} />} />
         <Route path="/admin" element={user?.role === 'admin' ? <AdminDashboard /> : <Navigate to="/" />} />
         {/* Agora ele só redireciona se loading for false e user for null */}
-        <Route path="/" element={user ? <ChatInterface user={user} /> : <Navigate to="/login" />} />
+        <Route path="/" element={user ? <ChatInterface user={user} setUser={setUser} /> : <Navigate to="/login" />} />
       </Routes>
     </BrowserRouter>
   );
