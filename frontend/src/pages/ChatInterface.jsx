@@ -177,7 +177,7 @@ export default function ChatInterface({ user, setUser }) {
     if (!input.trim()) return;
     let currentChatId = activeChatId;
 
-    if (!currentChatId && mode === 'chat') {
+    if (!currentChatId) {
       try {
         const res = await axios.post(API_URL + '/chats', { 
           model: selectedModel, 
