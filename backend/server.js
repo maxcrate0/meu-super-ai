@@ -297,8 +297,258 @@ app.post('/api/chat', auth, async (req, res) => {
     }
 });
 
-// ============ MODO SWARM ============
+// ============ SISTEMA SWARM AVANÇADO ============
 
+// Definição das ferramentas disponíveis para a IA (incluindo swarm)
+const getAvailableTools = () => [
+    {
+        type: "function",
+        function: {
+            name: "swarm_delegate",
+            description: `Delega uma ou mais tarefas para agentes secundários (IAs auxiliares) que executam de forma independente e retornam apenas o resultado. 
+Use esta ferramenta para:
+- Executar múltiplas tarefas em PARALELO para maior eficiência
+- Processar dados extensos sem ocupar sua janela de contexto
+- Analisar, resumir ou transformar informações
+- Executar cálculos ou processamentos complexos
+- Pesquisar e sintetizar informações
+Os agentes têm MEMÓRIA VOLÁTIL (não lembram de requisições anteriores), então inclua TODO o contexto necessário em cada tarefa.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    tasks: {
+                        type: "array",
+                        description: "Lista de tarefas a serem executadas por agentes secundários em paralelo",
+                        items: {
+                            type: "object",
+                            properties: {
+                                id: {
+                                    type: "string",
+                                    description: "Identificador único da tarefa (ex: 'task_1', 'analise_dados')"
+                                },
+                                instruction: {
+                                    type: "string",
+                                    description: "Instrução clara e completa para o agente executar. Inclua TODO o contexto necessário pois o agente não tem memória de conversas anteriores."
+                                },
+                                context: {
+                                    type: "string",
+                                    description: "Dados ou contexto adicional que o agente precisa para executar a tarefa (opcional, mas recomendado)"
+                                },
+                                output_format: {
+                                    type: "string",
+                                    description: "Formato esperado da resposta (ex: 'json', 'lista', 'resumo', 'análise detalhada')"
+                                }
+                            },
+                            required: ["id", "instruction"]
+                        }
+                    }
+                },
+                required: ["tasks"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "swarm_pipeline",
+            description: `Executa uma ferramenta/ação e envia o resultado diretamente para um agente Swarm processar, retornando apenas o resultado final.
+Use para economizar contexto quando você precisa:
+- Obter dados de uma fonte e processá-los sem ver os dados brutos
+- Encadear operações onde você só precisa do resultado final
+- Fazer análises de dados extensos
+O agente processador tem memória volátil e recebe apenas: sua instrução + resultado da ação.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    action: {
+                        type: "object",
+                        description: "A ação a ser executada primeiro",
+                        properties: {
+                            type: {
+                                type: "string",
+                                enum: ["http_get", "http_post", "calculate", "generate_data"],
+                                description: "Tipo da ação"
+                            },
+                            params: {
+                                type: "object",
+                                description: "Parâmetros da ação (url para http, expression para calculate, etc)"
+                            }
+                        },
+                        required: ["type", "params"]
+                    },
+                    processing_instruction: {
+                        type: "string",
+                        description: "Instrução para o agente Swarm sobre como processar o resultado da ação"
+                    },
+                    output_format: {
+                        type: "string",
+                        description: "Formato desejado do resultado final"
+                    }
+                },
+                required: ["action", "processing_instruction"]
+            }
+        }
+    }
+];
+
+// Função para executar um agente Swarm individual (memória volátil)
+const executeSwarmAgent = async (apiKey, task, model) => {
+    const openai = new OpenAI({
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey,
+        defaultHeaders: {
+            "HTTP-Referer": "https://meu-super-ai.vercel.app",
+            "X-Title": "Meu Super AI - Swarm Agent"
+        }
+    });
+
+    const systemPrompt = `Você é um agente Swarm especializado - uma IA auxiliar com memória volátil.
+
+IMPORTANTE:
+- Você NÃO tem memória de conversas anteriores
+- Execute APENAS a tarefa solicitada
+- Seja DIRETO e EFICIENTE na resposta
+- Retorne APENAS o resultado, sem explicações desnecessárias
+- Se um formato de saída foi especificado, siga-o rigorosamente
+
+${task.output_format ? `FORMATO DE SAÍDA ESPERADO: ${task.output_format}` : ''}`;
+
+    const userContent = task.context 
+        ? `TAREFA: ${task.instruction}\n\nCONTEXTO/DADOS:\n${task.context}`
+        : task.instruction;
+
+    try {
+        const resp = await openai.chat.completions.create({
+            model: model || "google/gemini-2.0-flash-exp:free",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            max_tokens: 4000
+        });
+        
+        return {
+            id: task.id,
+            success: true,
+            result: resp.choices[0].message.content
+        };
+    } catch (e) {
+        return {
+            id: task.id,
+            success: false,
+            error: e.message
+        };
+    }
+};
+
+// Função para executar ações do pipeline
+const executePipelineAction = async (action) => {
+    try {
+        switch (action.type) {
+            case 'http_get':
+                const getResp = await axios.get(action.params.url, { timeout: 15000 });
+                return { success: true, data: typeof getResp.data === 'string' ? getResp.data : JSON.stringify(getResp.data) };
+            
+            case 'http_post':
+                const postResp = await axios.post(action.params.url, action.params.body || {}, { timeout: 15000 });
+                return { success: true, data: typeof postResp.data === 'string' ? postResp.data : JSON.stringify(postResp.data) };
+            
+            case 'calculate':
+                // Avaliação segura de expressões matemáticas
+                const expr = action.params.expression.replace(/[^0-9+\-*/().%\s]/g, '');
+                const calcResult = Function('"use strict"; return (' + expr + ')')();
+                return { success: true, data: String(calcResult) };
+            
+            case 'generate_data':
+                return { success: true, data: JSON.stringify(action.params.data || {}) };
+            
+            default:
+                return { success: false, error: 'Tipo de ação desconhecido: ' + action.type };
+        }
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+};
+
+// Processa chamadas de ferramentas (incluindo swarm)
+const processToolCalls = async (toolCalls, apiKey, model) => {
+    const results = [];
+    
+    for (const toolCall of toolCalls) {
+        const funcName = toolCall.function.name;
+        let args;
+        
+        try {
+            args = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+            results.push({
+                tool_call_id: toolCall.id,
+                role: "tool",
+                content: JSON.stringify({ error: "Erro ao parsear argumentos: " + e.message })
+            });
+            continue;
+        }
+
+        if (funcName === 'swarm_delegate') {
+            // Executa todas as tarefas em paralelo
+            const taskPromises = args.tasks.map(task => executeSwarmAgent(apiKey, task, model));
+            const taskResults = await Promise.all(taskPromises);
+            
+            results.push({
+                tool_call_id: toolCall.id,
+                role: "tool",
+                content: JSON.stringify({
+                    swarm_results: taskResults,
+                    tasks_completed: taskResults.filter(r => r.success).length,
+                    tasks_failed: taskResults.filter(r => !r.success).length
+                })
+            });
+        } 
+        else if (funcName === 'swarm_pipeline') {
+            // 1. Executa a ação
+            const actionResult = await executePipelineAction(args.action);
+            
+            if (!actionResult.success) {
+                results.push({
+                    tool_call_id: toolCall.id,
+                    role: "tool",
+                    content: JSON.stringify({ error: "Falha na ação: " + actionResult.error })
+                });
+                continue;
+            }
+            
+            // 2. Envia para agente Swarm processar
+            const processingTask = {
+                id: "pipeline_result",
+                instruction: args.processing_instruction,
+                context: actionResult.data,
+                output_format: args.output_format
+            };
+            
+            const processedResult = await executeSwarmAgent(apiKey, processingTask, model);
+            
+            results.push({
+                tool_call_id: toolCall.id,
+                role: "tool",
+                content: JSON.stringify({
+                    pipeline_result: processedResult.result,
+                    success: processedResult.success
+                })
+            });
+        }
+        else {
+            results.push({
+                tool_call_id: toolCall.id,
+                role: "tool",
+                content: JSON.stringify({ error: "Ferramenta desconhecida: " + funcName })
+            });
+        }
+    }
+    
+    return results;
+};
+
+// Endpoint legado do Swarm (mantido para compatibilidade)
 app.post('/api/swarm', auth, async (req, res) => {
     const { task, model } = req.body;
     const apiKey = await getApiKey(req.user);
@@ -307,33 +557,152 @@ app.post('/api/swarm', auth, async (req, res) => {
         return res.status(400).json({ error: 'Nenhuma API Key configurada.' });
     }
 
+    try {
+        const result = await executeSwarmAgent(apiKey, { 
+            id: 'direct_task', 
+            instruction: task 
+        }, model);
+        
+        User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
+        res.json({ role: 'assistant', content: result.result });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint de chat com suporte a ferramentas Swarm
+app.post('/api/chat/tools', auth, async (req, res) => {
+    const { chatId, messages, model, userSystemPrompt, enableSwarm = true } = req.body;
+    const apiKey = await getApiKey(req.user);
+    
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Nenhuma API Key configurada. Configure sua chave pessoal ou peça ao admin.' });
+    }
+
     const openai = new OpenAI({
         baseURL: "https://openrouter.ai/api/v1",
         apiKey,
         defaultHeaders: {
             "HTTP-Referer": "https://meu-super-ai.vercel.app",
-            "X-Title": "Meu Super AI - Swarm"
+            "X-Title": "Meu Super AI"
         }
     });
 
-    const swarmPrompt = `Você é um sistema de IA avançado operando em modo SWARM. 
-Sua tarefa é analisar e resolver problemas de forma estruturada e colaborativa.
-Divida problemas complexos em subtarefas, analise cada uma e sintetize uma resposta completa.
-Seja detalhado, organizado e forneça soluções práticas.`;
+    // System prompt ensinando a IA a usar o Swarm
+    const swarmInstructions = enableSwarm ? `
+
+## FERRAMENTAS SWARM DISPONÍVEIS
+
+Você tem acesso a um sistema de agentes Swarm para executar tarefas de forma eficiente:
+
+### 1. swarm_delegate
+Use para delegar tarefas a agentes secundários (IAs auxiliares):
+- Execute MÚLTIPLAS tarefas em PARALELO para maior eficiência
+- Os agentes têm MEMÓRIA VOLÁTIL - inclua TODO contexto necessário
+- Ideal para: análises, resumos, cálculos, processamentos, pesquisas
+- O resultado de cada agente volta diretamente para você
+
+Exemplo de uso:
+- Usuário pede para analisar 3 tópicos diferentes → delegue cada análise para um agente separado
+- Precisa processar dados extensos → delegue para não ocupar seu contexto
+- Tarefas independentes → execute em paralelo para responder mais rápido
+
+### 2. swarm_pipeline  
+Use para encadear ações onde você só precisa do resultado final:
+- Busca dados (HTTP) → agente processa → você recebe só o resultado
+- Economiza sua janela de contexto
+- Ideal quando não precisa ver os dados brutos
+
+### QUANDO USAR SWARM:
+✅ Múltiplas tarefas independentes (paralelize!)
+✅ Processamento de dados extensos
+✅ Análises que não precisam de contexto anterior
+✅ Quando quiser economizar tokens/contexto
+✅ Tarefas bem definidas e autocontidas
+
+### QUANDO NÃO USAR:
+❌ Tarefas simples que você resolve rapidamente
+❌ Quando precisa de contexto da conversa anterior
+❌ Interações que requerem continuidade
+` : '';
+
+    const systemContent = [];
+    systemContent.push(`Você é um assistente de IA avançado com capacidades de delegação de tarefas.${swarmInstructions}`);
+    if (userSystemPrompt) systemContent.push(userSystemPrompt);
+    if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
+    
+    const msgs = [{ role: "system", content: systemContent.join('\n\n') }, ...messages];
+    const tools = enableSwarm ? getAvailableTools() : undefined;
 
     try {
-        const resp = await openai.chat.completions.create({
+        let resp = await openai.chat.completions.create({
             model: model || "google/gemini-2.0-flash-exp:free",
-            messages: [
-                { role: "system", content: swarmPrompt },
-                { role: "user", content: task }
-            ]
+            messages: msgs,
+            tools,
+            tool_choice: enableSwarm ? "auto" : undefined
         });
+
+        let assistantMessage = resp.choices[0].message;
         
+        // Processa tool calls se houver
+        let iterations = 0;
+        const maxIterations = 5; // Limite de segurança
+        
+        while (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxIterations) {
+            iterations++;
+            
+            // Adiciona a mensagem do assistente com tool_calls
+            msgs.push(assistantMessage);
+            
+            // Processa as ferramentas
+            const toolResults = await processToolCalls(assistantMessage.tool_calls, apiKey, model);
+            
+            // Adiciona os resultados das ferramentas
+            msgs.push(...toolResults);
+            
+            // Incrementa uso para cada chamada de agente
+            User.findByIdAndUpdate(req.user._id, { 
+                $inc: { 'usage.requests': toolResults.length } 
+            }).catch(() => {});
+            
+            // Faz nova chamada para a IA processar os resultados
+            resp = await openai.chat.completions.create({
+                model: model || "google/gemini-2.0-flash-exp:free",
+                messages: msgs,
+                tools,
+                tool_choice: "auto"
+            });
+            
+            assistantMessage = resp.choices[0].message;
+        }
+
+        // Prepara resposta final
+        const finalResponse = {
+            role: 'assistant',
+            content: assistantMessage.content || '',
+            swarm_used: iterations > 0,
+            swarm_iterations: iterations
+        };
+
+        res.json(finalResponse);
+
+        // Incrementa uso e salva histórico em background
         User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
-        res.json(resp.choices[0].message);
+        
+        if (chatId) {
+            Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
+                if (chat) {
+                    chat.messages.push(messages[messages.length - 1]);
+                    chat.messages.push({ role: 'assistant', content: finalResponse.content });
+                    chat.model = model;
+                    chat.updatedAt = Date.now();
+                    await chat.save();
+                }
+            }).catch(err => console.error('Erro ao salvar histórico:', err));
+        }
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('Erro na API:', e.message);
+        res.status(500).json({ error: e.message, details: e.response?.data });
     }
 });
 

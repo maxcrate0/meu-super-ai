@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   Cpu, Settings, LogOut, Plus, MessageSquare, Trash2, Edit2, X, Check, 
-  Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw
+  Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw, Zap
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -17,7 +17,7 @@ export default function ChatInterface({ user, setUser }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState('chat');
+  const [swarmEnabled, setSwarmEnabled] = useState(true); // Habilita ferramentas Swarm no chat
   
   // Modelos
   const [models, setModels] = useState([]);
@@ -108,7 +108,6 @@ export default function ChatInterface({ user, setUser }) {
   const selectChat = async (id) => {
     setLoading(true);
     setActiveChatId(id);
-    setMode('chat');
     setShowSidebar(false);
     try {
       const res = await axios.get(API_URL + '/chats/' + id, { 
@@ -126,7 +125,6 @@ export default function ChatInterface({ user, setUser }) {
   const createNewChat = () => {
     setActiveChatId(null);
     setMessages([]);
-    setMode('chat');
     setShowSidebar(false);
   };
 
@@ -202,22 +200,29 @@ export default function ChatInterface({ user, setUser }) {
     setLoading(true);
 
     try {
-      const endpoint = mode === 'swarm' ? '/swarm' : '/chat';
-      const payload = mode === 'swarm' 
-        ? { task: input, model: selectedModel }
-        : { chatId: currentChatId, messages: newMsgs, model: selectedModel, userSystemPrompt };
+      // Usa o endpoint com suporte a ferramentas Swarm
+      const endpoint = swarmEnabled ? '/chat/tools' : '/chat';
+      const payload = { 
+        chatId: currentChatId, 
+        messages: newMsgs, 
+        model: selectedModel, 
+        userSystemPrompt,
+        enableSwarm: swarmEnabled
+      };
 
       const res = await axios.post(API_URL + endpoint, payload, {
         headers: { Authorization: 'Bearer ' + token },
-        timeout: 120000
+        timeout: 180000 // 3 minutos para permitir múltiplas chamadas Swarm
       });
 
-      const reply = mode === 'swarm' 
-        ? { role: 'assistant', content: '🐝 [SWARM]\n\n' + res.data.content }
-        : res.data;
+      const reply = {
+        role: 'assistant',
+        content: res.data.content,
+        ...(res.data.swarm_used && { swarm_used: true, swarm_iterations: res.data.swarm_iterations })
+      };
 
       setMessages([...newMsgs, reply]);
-      if (mode === 'chat') loadChats();
+      loadChats();
     } catch(err) {
       let errorMsg = err.code === 'ECONNABORTED' 
         ? "Timeout - A IA demorou muito para responder."
@@ -260,12 +265,13 @@ export default function ChatInterface({ user, setUser }) {
             <Plus size={18}/> Novo Chat
           </button>
           <button 
-            onClick={() => { setMode(mode === 'swarm' ? 'chat' : 'swarm'); setShowSidebar(false); }}
+            onClick={() => { setSwarmEnabled(!swarmEnabled); setShowSidebar(false); }}
             className={`mt-2 w-full p-3 rounded-lg flex items-center justify-center gap-2 transition font-medium ${
-              mode === 'swarm' ? 'bg-purple-600 hover:bg-purple-500' : (isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300')
+              swarmEnabled ? 'bg-purple-600 hover:bg-purple-500' : (isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300')
             }`}
+            title={swarmEnabled ? "Swarm ativo: A IA pode delegar tarefas para agentes paralelos" : "Swarm desativado"}
           >
-            <Cpu size={18}/> Modo Swarm
+            <Zap size={18}/> Swarm {swarmEnabled ? 'ON' : 'OFF'}
           </button>
         </div>
 
@@ -349,7 +355,11 @@ export default function ChatInterface({ user, setUser }) {
             <span className={textMuted}>
               Modelo: <span className={textMain}>{models.find(m => m.id === selectedModel)?.name || selectedModel}</span>
             </span>
-            {mode === 'swarm' && <span className="text-purple-400 font-bold flex items-center gap-1"><Cpu size={14}/> SWARM</span>}
+            {swarmEnabled && (
+              <span className="text-purple-400 font-bold flex items-center gap-1" title="A IA pode usar agentes paralelos para tarefas complexas">
+                <Zap size={14}/> SWARM
+              </span>
+            )}
           </div>
           <button onClick={() => setShowChatConfig(true)} className={`flex items-center gap-2 ${textMuted} hover:text-blue-400 transition`}>
             <Settings size={16}/> Config Chat
@@ -360,8 +370,19 @@ export default function ChatInterface({ user, setUser }) {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 && (
             <div className={`text-center ${textMuted} mt-20`}>
-              <h2 className="text-3xl font-bold mb-2">{mode === 'swarm' ? '🐝 Modo Swarm' : '💬 Novo Chat'}</h2>
-              <p className="text-sm">Envie uma mensagem para começar</p>
+              <h2 className="text-3xl font-bold mb-2">💬 Novo Chat</h2>
+              <p className="text-sm mb-4">Envie uma mensagem para começar</p>
+              {swarmEnabled && (
+                <div className={`${bgCard} p-4 rounded-xl max-w-lg mx-auto text-left ${borderColor} border`}>
+                  <div className="flex items-center gap-2 mb-2 text-purple-400">
+                    <Zap size={18}/> <span className="font-bold">Modo Swarm Ativo</span>
+                  </div>
+                  <p className="text-xs opacity-80">
+                    A IA pode delegar tarefas para agentes secundários em paralelo, 
+                    economizando contexto e aumentando eficiência. Ideal para tarefas complexas!
+                  </p>
+                </div>
+              )}
             </div>
           )}
           {messages.map((m, i) => (
@@ -373,8 +394,13 @@ export default function ChatInterface({ user, setUser }) {
                   : (isDark ? 'bg-gray-800' : 'bg-white border')
               }`}
             >
-              <div className="text-xs opacity-60 uppercase font-bold mb-2">
-                {m.role === 'user' ? (displayName || user?.username || 'Você') : 'Assistente'}
+              <div className="flex items-center gap-2 text-xs opacity-60 uppercase font-bold mb-2">
+                <span>{m.role === 'user' ? (displayName || user?.username || 'Você') : 'Assistente'}</span>
+                {m.swarm_used && (
+                  <span className="text-purple-400 normal-case flex items-center gap-1">
+                    <Zap size={12}/> Swarm ({m.swarm_iterations}x)
+                  </span>
+                )}
               </div>
               <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{m.content}</pre>
             </div>
@@ -382,7 +408,7 @@ export default function ChatInterface({ user, setUser }) {
           {loading && (
             <div className="flex items-center justify-center gap-2 text-blue-400">
               <Loader2 className="animate-spin" size={20}/>
-              <span>Processando...</span>
+              <span>{swarmEnabled ? 'Processando (pode usar agentes paralelos)...' : 'Processando...'}</span>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -393,7 +419,7 @@ export default function ChatInterface({ user, setUser }) {
           <div className="flex gap-2 max-w-4xl mx-auto">
             <input
               className={`flex-1 ${bgInput} p-4 rounded-xl ${borderColor} border outline-none focus:border-blue-500 transition`}
-              placeholder={mode === 'swarm' ? "Descreva sua tarefa..." : "Digite sua mensagem..."}
+              placeholder="Digite sua mensagem..."
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
