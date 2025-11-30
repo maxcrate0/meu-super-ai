@@ -1,133 +1,158 @@
 require('dotenv').config();
-                                        const express = require('express');
-                                        const mongoose = require('mongoose');
-                                        const cors = require('cors');
-                                        const jwt = require('jsonwebtoken');
-                                        const bcrypt = require('bcryptjs');
-                                        const OpenAI = require('openai');
-                                        const { exec } = require('child_process');
-                                        const puppeteer = require('puppeteer');
-                                        const User = require('./models/User');
-                                        const Chat = require('./models/Chat');
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const OpenAI = require('openai');
+const { exec } = require('child_process');
+const puppeteer = require('puppeteer');
+const vm = require('vm');
+const axios = require('axios');
+const User = require('./models/User');
+const Chat = require('./models/Chat');
+const CustomTool = require('./models/CustomTool');
+const GlobalConfig = require('./models/GlobalConfig');
 
-                                        const app = express();
-                                        app.use(cors());
-                                        app.use(express.json());
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-                                        const PORT = process.env.PORT || 3000;
-                                        const JWT_SECRET = process.env.JWT_SECRET || 'secret';
-                                        const GLOBAL_API_KEY = process.env.GLOBAL_API_KEY;
-                                        const DEFAULT_MODEL = "google/gemini-2.0-flash-exp:free";
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+const GLOBAL_API_KEY = process.env.GLOBAL_API_KEY;
 
-                                        // Seed Admin
-                                        const createInitialAdmin = async () => {
-                                          try {
-                                              if (!await User.findOne({ username: 'admin' })) {
-                                                    const hash = await bcrypt.hash('@admin2306#', 10);
-                                                          await User.create({ username: 'admin', password: hash, role: 'admin' });
-                                                                console.log('>>> ADMIN CRIADO: admin / @admin2306# <<<');
-                                                                    }
-                                                                      } catch (e) { console.error(e); }
-                                                                      };
+mongoose.connect(process.env.MONGODB_URI).then(async () => {
+    console.log('MongoDB ON');
+    if (!await User.findOne({ username: 'admin' })) {
+        const hash = await bcrypt.hash('@admin2306#', 10);
+        await User.create({ username: 'admin', password: hash, role: 'admin' });
+    }
+    if (!await GlobalConfig.findOne({ key: 'admin_system_prompt' })) {
+        await GlobalConfig.create({ key: 'admin_system_prompt', value: '' });
+    }
+}).catch(e => console.error(e));
 
-                                                                      mongoose.connect(process.env.MONGODB_URI)
-                                                                        .then(() => { console.log('DB Conectado'); createInitialAdmin(); })
-                                                                          .catch(err => console.error(err));
+const auth = async (req, res, next) => {
+  const t = req.header('Authorization')?.replace('Bearer ', '');
+  if (!t) return res.status(401).send('No token');
+  try { req.user = await User.findById(jwt.verify(t, JWT_SECRET).id); next(); } catch (e) { res.status(400).send('Invalid'); }
+};
 
-                                                                          const auth = async (req, res, next) => {
-                                                                            const token = req.header('Authorization')?.replace('Bearer ', '');
-                                                                              if (!token) return res.status(401).send('Negado');
-                                                                                try {
-                                                                                    const verified = jwt.verify(token, JWT_SECRET);
-                                                                                        req.user = await User.findById(verified.id);
-                                                                                            next();
-                                                                                              } catch (err) { res.status(400).send('Token invalido'); }
-                                                                                              };
+const nativeTools = {
+  terminal: async (cmd) => new Promise(r => {
+      const allowed = ['ls', 'pwd', 'cat', 'grep', 'whoami', 'date', 'echo', 'ping', 'curl', 'ps', 'node -v'];
+      if(cmd.includes('>')||cmd.includes('|')||!allowed.includes(cmd.split(' ')[0])) return r("Blocked");
+      exec(cmd, {timeout:5000}, (e,o,r_err)=>r(e?e.message:o||r_err));
+  }),
+  network_analyzer: async (url) => {
+      try {
+        const b = await puppeteer.launch({headless:'new', args:['--no-sandbox']});
+        const p = await b.newPage(); const reqs=[];
+        p.on('request', r=>reqs.push({u:r.url(),m:r.method()}));
+        await p.goto(url,{waitUntil:'networkidle0',timeout:8000}); await b.close();
+        return JSON.stringify(reqs.slice(0,30));
+      } catch(e){return e.message}
+  }
+};
 
-                                                                                              // Tools
-                                                                                              const runSafeTerminal = (cmd) => new Promise(res => {
-                                                                                                const allowed = ['ls', 'pwd', 'cat', 'grep', 'whoami', 'date', 'echo', 'ping', 'curl', 'ps', 'node -v', 'git status'];
-                                                                                                  if (cmd.includes('>') || cmd.includes('|') || !allowed.includes(cmd.split(' ')[0])) return res("COMANDO PROIBIDO");
-                                                                                                    exec(cmd, { timeout: 5000 }, (e, out, err) => res(e ? "Erro: "+e.message : out || err));
-                                                                                                    });
+app.get('/api/models', async (req, res) => {
+  try {
+    const r = await axios.get('https://openrouter.ai/api/v1/models');
+    res.json(r.data.data.filter(m=>m.pricing.prompt==="0"||m.id.includes("free")).map(m=>({id:m.id,name:m.name})));
+  } catch(e) { res.json([{id:"google/gemini-2.0-flash-exp:free",name:"Gemini 2.0 Free"}]); }
+});
 
-                                                                                                    const analyzeNetwork = async (url) => {
-                                                                                                      try {
-                                                                                                          const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
-                                                                                                              const page = await browser.newPage();
-                                                                                                                  const reqs = [];
-                                                                                                                      page.on('request', r => reqs.push({ url: r.url(), method: r.method() }));
-                                                                                                                          await page.goto(url, { waitUntil: 'networkidle0', timeout: 10000 });
-                                                                                                                              await browser.close();
-                                                                                                                                  return JSON.stringify(reqs.slice(0, 30));
-                                                                                                                                    } catch (e) { return "Erro: " + e.message; }
-                                                                                                                                    };
+app.post('/api/register', async (req, res) => {
+  const {username, password} = req.body;
+  if(await User.findOne({username})) return res.status(400).json({error:"User exists"});
+  const hash = await bcrypt.hash(password, 10);
+  const user = await User.create({username, password: hash});
+  res.json({token: jwt.sign({id: user._id}, JWT_SECRET), role: user.role, username});
+});
 
-                                                                                                                                    // Routes
-                                                                                                                                    app.post('/api/chat', auth, async (req, res) => {
-                                                                                                                                      const { messages, model, systemPrompt, toolsEnabled } = req.body;
-                                                                                                                                        const apiKey = req.user.personal_api_key || GLOBAL_API_KEY;
-                                                                                                                                          const openai = new OpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey });
-                                                                                                                                            
-                                                                                                                                              await User.findByIdAndUpdate(req.user._id, { $inc: { "usage.requests": 1 } });
-                                                                                                                                                
-                                                                                                                                                  // Salvar Chat (Opcional - Logica basica)
-                                                                                                                                                    let chat = await Chat.findOne({ userId: req.user._id }).sort({_id:-1});
-                                                                                                                                                      if(!chat) chat = await Chat.create({ userId: req.user._id, messages: [] });
-                                                                                                                                                        // Aqui voce pode expandir para salvar historico real no banco
+app.post('/api/login', async (req, res) => {
+  const {username, password} = req.body;
+  const user = await User.findOne({username});
+  if(!user || !await bcrypt.compare(password, user.password)) return res.status(400).json({error:"Invalid creds"});
+  res.json({token: jwt.sign({id: user._id}, JWT_SECRET), role: user.role, username});
+});
 
-                                                                                                                                                          const tools = [
-                                                                                                                                                              { type: "function", function: { name: "terminal", description: "Read-only terminal", parameters: { type: "object", properties: { cmd: { type: "string" } } } } },
-                                                                                                                                                                  { type: "function", function: { name: "network_analyzer", description: "Analyze network", parameters: { type: "object", properties: { url: { type: "string" } } } } }
-                                                                                                                                                                    ];
+app.post('/api/chat', auth, async (req, res) => {
+  const { messages, model, userSystemPrompt, toolsEnabled } = req.body;
+  const apiKey = req.user.personal_api_key || GLOBAL_API_KEY;
+  const openai = new OpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey });
 
-                                                                                                                                                                      try {
-                                                                                                                                                                          const allMsgs = systemPrompt ? [{role:"system", content:systemPrompt}, ...messages] : messages;
-                                                                                                                                                                              const resp = await openai.chat.completions.create({ model: model || DEFAULT_MODEL, messages: allMsgs, tools: toolsEnabled ? tools : undefined });
-                                                                                                                                                                                  const msg = resp.choices[0].message;
+  const conf = await GlobalConfig.findOne({ key: 'admin_system_prompt' });
+  let msgs = [...messages];
+  const sys = ((conf?.value||"") + "\n" + (userSystemPrompt||"")).trim();
+  if(sys) msgs = [{role:"system", content:sys}, ...messages];
 
-                                                                                                                                                                                      if (msg.tool_calls) {
-                                                                                                                                                                                            const tool = msg.tool_calls[0];
-                                                                                                                                                                                                  const args = JSON.parse(tool.function.arguments);
-                                                                                                                                                                                                        const result = tool.function.name === 'terminal' ? await runSafeTerminal(args.cmd) : await analyzeNetwork(args.url);
-                                                                                                                                                                                                              const final = await openai.chat.completions.create({ model: model || DEFAULT_MODEL, messages: [...allMsgs, msg, { role: "tool", tool_call_id: tool.id, content: result }] });
-                                                                                                                                                                                                                    return res.json(final.choices[0].message);
-                                                                                                                                                                                                                        }
-                                                                                                                                                                                                                            res.json(msg);
-                                                                                                                                                                                                                              } catch (e) { res.status(500).json({ error: e.message }); }
-                                                                                                                                                                                                                              });
+  const uTools = await CustomTool.find({ userId: req.user._id });
+  let tools = [];
+  if(toolsEnabled) {
+      tools.push(
+          {type:"function",function:{name:"terminal",description:"Linux cmd",parameters:{type:"object",properties:{cmd:{type:"string"}}}}},
+          {type:"function",function:{name:"network_analyzer",description:"Check network",parameters:{type:"object",properties:{url:{type:"string"}}}}},
+          {type:"function",function:{name:"create_tool",description:"Create JS tool",parameters:{type:"object",properties:{name:{type:"string"},description:{type:"string"},code:{type:"string"}}}}},
+          {type:"function",function:{name:"delete_my_tool",description:"Delete tool",parameters:{type:"object",properties:{name:{type:"string"}}}}}
+      );
+      uTools.forEach(t => tools.push({type:"function",function:{name:t.name,description:t.description,parameters:{type:"object",properties:{args:{type:"object"}}}}}));
+  }
 
-                                                                                                                                                                                                                              app.post('/api/swarm', auth, async (req, res) => {
-                                                                                                                                                                                                                                const { task, model } = req.body;
-                                                                                                                                                                                                                                  const apiKey = req.user.personal_api_key || GLOBAL_API_KEY;
-                                                                                                                                                                                                                                    const targetModel = model || DEFAULT_MODEL;
-                                                                                                                                                                                                                                      const openai = new OpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey });
+  try {
+    await User.findByIdAndUpdate(req.user._id, {$inc:{"usage.requests":1}});
+    const resp = await openai.chat.completions.create({model: model||"google/gemini-2.0-flash-exp:free", messages: msgs, tools: toolsEnabled?tools:undefined});
+    const msg = resp.choices[0].message;
 
-                                                                                                                                                                                                                                        try {
-                                                                                                                                                                                                                                            const plan = await openai.chat.completions.create({ model: targetModel, messages: [{ role: "system", content: "Return JSON array of subtasks." }, { role: "user", content: task }] });
-                                                                                                                                                                                                                                                let subtasks = [task];
-                                                                                                                                                                                                                                                    try { subtasks = JSON.parse(plan.choices[0].message.content.replace(/\`\`\`json|\`\`\`/g, '')); } catch(e){}
-                                                                                                                                                                                                                                                        
-                                                                                                                                                                                                                                                            const results = await Promise.all(subtasks.slice(0, 30).map(t => 
-                                                                                                                                                                                                                                                                  openai.chat.completions.create({ model: targetModel, messages: [{ role: "user", content: JSON.stringify(t) }] })
-                                                                                                                                                                                                                                                                        .then(r => r.choices[0].message.content).catch(e => "Error")
-                                                                                                                                                                                                                                                                            ));
+    if(msg.tool_calls) {
+        const tc = msg.tool_calls[0];
+        const fn = tc.function.name;
+        const args = JSON.parse(tc.function.arguments);
+        let resText = "";
 
-                                                                                                                                                                                                                                                                                const summary = await openai.chat.completions.create({ model: targetModel, messages: [{ role: "system", content: "Summarize." }, { role: "user", content: JSON.stringify(results) }] });
-                                                                                                                                                                                                                                                                                    res.json(summary.choices[0].message);
-                                                                                                                                                                                                                                                                                      } catch (e) { res.status(500).json({ error: e.message }); }
-                                                                                                                                                                                                                                                                                      });
+        if(fn==='create_tool') {
+            try { await CustomTool.create({userId:req.user._id, name:args.name.toLowerCase(), description:args.description, code:args.code}); resText="Tool created!"; } catch(e){resText="Error: "+e.message}
+        } else if(fn==='delete_my_tool') {
+            await CustomTool.findOneAndDelete({userId:req.user._id, name:args.name}); resText="Deleted.";
+        } else if(nativeTools[fn]) {
+            resText = fn==='terminal'?await nativeTools.terminal(args.cmd):await nativeTools.network_analyzer(args.url);
+        } else {
+            const ct = uTools.find(t=>t.name===fn);
+            if(ct) {
+                try {
+                    const sandbox = {args:args||{}, result:null}; vm.createContext(sandbox);
+                    new vm.Script(`result=(function(){${ct.code}})();`).runInContext(sandbox, {timeout:1000});
+                    resText = String(sandbox.result);
+                } catch(e){resText="Script Error: "+e.message}
+            } else resText="Tool not found";
+        }
+        
+        const final = await openai.chat.completions.create({model: model, messages: [...msgs, msg, {role:"tool", tool_call_id:tc.id, content:resText}]});
+        return res.json(final.choices[0].message);
+    }
+    res.json(msg);
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
 
-                                                                                                                                                                                                                                                                                      app.post('/api/login', async (req, res) => {
-                                                                                                                                                                                                                                                                                        const { username, password } = req.body;
-                                                                                                                                                                                                                                                                                          const user = await User.findOne({ username });
-                                                                                                                                                                                                                                                                                            if (!user || !await bcrypt.compare(password, user.password)) return res.status(400).send('Invalid');
-                                                                                                                                                                                                                                                                                              res.json({ token: jwt.sign({ id: user._id }, JWT_SECRET), role: user.role, username: user.username });
-                                                                                                                                                                                                                                                                                              });
+app.get('/api/admin/stats', auth, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).send('Admin only');
+    const users = await User.find({}, '-password');
+    const tools = await CustomTool.find().populate('userId', 'username');
+    const config = await GlobalConfig.findOne({ key: 'admin_system_prompt' });
+    res.json({ users, tools, systemPrompt: config?.value || '' });
+});
 
-                                                                                                                                                                                                                                                                                              app.get('/api/admin/data', auth, async (req, res) => {
-                                                                                                                                                                                                                                                                                                const users = await User.find({}, '-password');
-                                                                                                                                                                                                                                                                                                  res.json({ users, chats: [] }); // Simplificado para demo
-                                                                                                                                                                                                                                                                                                  });
+app.post('/api/admin/config', auth, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).send('Admin only');
+    await GlobalConfig.findOneAndUpdate({ key: req.body.key }, { value: req.body.value }, { upsert: true });
+    res.json({ success: true });
+});
 
-                                                                                                                                                                                                                                                                                                  app.listen(PORT, () => console.log('Server running'));
+app.delete('/api/admin/tool/:id', auth, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).send('Admin only');
+    await CustomTool.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+});
+
+app.listen(PORT, () => console.log('Server V2 running'));
