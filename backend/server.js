@@ -13,6 +13,22 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
+
+// GPT4Free - módulo será carregado dinamicamente (é ESM)
+let g4fModule = null;
+let g4fProviders = null;
+let createG4FClient = null;
+
+async function loadG4F() {
+    if (!g4fModule) {
+        g4fModule = await import('@gpt4free/g4f.dev');
+        const providersModule = await import('@gpt4free/g4f.dev/providers');
+        g4fProviders = providersModule.default || providersModule;
+        createG4FClient = providersModule.createClient;
+    }
+    return { g4fModule, g4fProviders, createG4FClient };
+}
+
 const User = require('./models/User');
 const Chat = require('./models/Chat');
 const CustomTool = require('./models/CustomTool');
@@ -151,60 +167,86 @@ app.get('/api/models', async (req, res) => {
     }
 });
 
-// Modelos GPT4Free (busca do MongoDB ou usa fallback)
+// Modelos GPT4Free - busca dos provedores reais via @gpt4free/g4f.dev
 app.get('/api/models/g4f', async (req, res) => {
     const now = Date.now();
-    if (g4fModelsCache.data.length > 0 && (now - g4fModelsCache.lastFetch) < MODELS_CACHE_TTL) {
+    
+    // Retorna cache se ainda válido (cache de 30 minutos para g4f)
+    const G4F_CACHE_TTL = 30 * 60 * 1000;
+    if (g4fModelsCache.data.length > 0 && (now - g4fModelsCache.lastFetch) < G4F_CACHE_TTL) {
         return res.json(g4fModelsCache.data);
     }
     
-    await connectDB();
-    
-    // Tenta buscar do MongoDB (atualizado pela Azure Function)
     try {
+        const { createG4FClient: createClient } = await loadG4F();
+        const allModels = [];
+        
+        // Provedores gratuitos do g4f.dev
+        const freeProviders = ['pollinations-ai', 'default', 'puter'];
+        
+        for (const providerName of freeProviders) {
+            try {
+                const client = createClient(providerName);
+                const models = await client.models.list();
+                
+                if (models && models.length > 0) {
+                    models.forEach(m => {
+                        allModels.push({
+                            id: m.id,
+                            name: m.id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                            provider: providerName,
+                            type: m.type || 'chat'
+                        });
+                    });
+                }
+            } catch (e) {
+                console.log(`Erro ao buscar modelos do provider ${providerName}:`, e.message);
+            }
+        }
+        
+        // Se conseguiu buscar modelos, salva no cache
+        if (allModels.length > 0) {
+            // Remove duplicatas por ID
+            const uniqueModels = [...new Map(allModels.map(m => [m.id, m])).values()];
+            g4fModelsCache = { data: uniqueModels, lastFetch: now };
+            
+            // Salva no MongoDB para persistência
+            await connectDB();
+            await mongoose.connection.db.collection('g4f_cache').updateOne(
+                { _id: 'g4f_data' },
+                { $set: { models: uniqueModels, updated_at: new Date() } },
+                { upsert: true }
+            );
+            
+            return res.json(uniqueModels);
+        }
+    } catch (e) {
+        console.error('Erro ao buscar modelos g4f:', e.message);
+    }
+    
+    // Fallback: Tenta buscar do MongoDB
+    try {
+        await connectDB();
         const g4fData = await mongoose.connection.db.collection('g4f_cache').findOne({ _id: 'g4f_data' });
         if (g4fData && g4fData.models && g4fData.models.length > 0) {
             g4fModelsCache = { data: g4fData.models, lastFetch: now };
             return res.json(g4fData.models);
         }
     } catch (e) {
-        console.log('G4F cache não encontrado, usando fallback');
+        console.log('G4F cache não encontrado');
     }
     
-    // Fallback: Lista estática de modelos populares do GPT4Free
+    // Fallback final: Lista de modelos conhecidos do pollinations-ai
     const g4fModels = [
-        // GPT-4 variants
-        { id: 'gpt-4', name: 'GPT-4', provider: 'Multiple' },
-        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'Multiple' },
-        { id: 'gpt-4o', name: 'GPT-4o', provider: 'Multiple' },
-        { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'Multiple' },
-        // GPT-3.5
-        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'Multiple' },
-        // Claude variants
-        { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Multiple' },
-        { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'Multiple' },
-        { id: 'claude-3-haiku', name: 'Claude 3 Haiku', provider: 'Multiple' },
-        { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Multiple' },
-        // Gemini
-        { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Multiple' },
-        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'Multiple' },
-        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'Multiple' },
-        // Llama
-        { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', provider: 'Multiple' },
-        { id: 'llama-3.1-405b', name: 'Llama 3.1 405B', provider: 'Multiple' },
-        { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', provider: 'Multiple' },
-        // Mistral
-        { id: 'mistral-large', name: 'Mistral Large', provider: 'Multiple' },
-        { id: 'mixtral-8x7b', name: 'Mixtral 8x7B', provider: 'Multiple' },
-        // DeepSeek
-        { id: 'deepseek-chat', name: 'DeepSeek Chat', provider: 'Multiple' },
-        { id: 'deepseek-coder', name: 'DeepSeek Coder', provider: 'Multiple' },
-        // Qwen
-        { id: 'qwen-2.5-72b', name: 'Qwen 2.5 72B', provider: 'Multiple' },
-        { id: 'qwen-2.5-coder-32b', name: 'Qwen 2.5 Coder 32B', provider: 'Multiple' },
-        // Outros
-        { id: 'blackboxai', name: 'BlackBox AI', provider: 'BlackBox' },
-        { id: 'command-r-plus', name: 'Command R+', provider: 'Multiple' },
+        { id: 'deepseek-v3', name: 'DeepSeek V3.1', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'searchgpt', name: 'Gemini Search', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.2 24B', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'gpt-5-mini', name: 'OpenAI GPT-5 Nano', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'llama-4-maverick', name: 'Llama 4 Maverick', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'claude-hybridspace', name: 'Claude Hybridspace', provider: 'pollinations-ai', type: 'chat' },
+        { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', provider: 'pollinations-ai', type: 'chat' },
     ];
     
     g4fModelsCache = { data: g4fModels, lastFetch: now };
@@ -462,37 +504,49 @@ app.delete('/api/chats/:id', auth, async (req, res) => {
 
 // ============ CHAT COM IA ============
 
-// Helper para chamada GPT4Free
-const callG4F = async (model, messages) => {
-    // G4F usa uma API similar à OpenAI
-    // Você pode configurar seu próprio servidor g4f ou usar provedores públicos
-    // Por padrão, tentamos usar um provedor público
-    const g4fEndpoints = [
-        'https://api.airforce/chat/completions',
-        'https://api.freegpt4.ddns.net/v1/chat/completions',
-    ];
+// Helper para chamada GPT4Free usando @gpt4free/g4f.dev
+const callG4F = async (model, messages, preferredProvider = null) => {
+    const { createG4FClient: createClient } = await loadG4F();
     
-    for (const endpoint of g4fEndpoints) {
+    // Extrai o provedor do modelo se estiver no formato "provider/model"
+    let provider = preferredProvider;
+    let modelName = model;
+    
+    if (model.includes('/')) {
+        const parts = model.split('/');
+        provider = parts[0];
+        modelName = parts.slice(1).join('/');
+    }
+    
+    // Lista de provedores para tentar (em ordem de prioridade) - usando nomes do g4f.dev
+    const providersToTry = provider 
+        ? [provider]
+        : ['pollinations-ai', 'default', 'puter', 'deep-infra', 'hugging-face'];
+    
+    const errors = [];
+    
+    for (const providerKey of providersToTry) {
         try {
-            const response = await axios.post(endpoint, {
-                model: model,
+            const client = createClient(providerKey);
+            console.log(`Tentando G4F com provedor: ${providerKey}, modelo: ${modelName}`);
+            
+            const response = await client.chat.completions.create({
+                model: modelName,
                 messages: messages,
-                stream: false
-            }, { 
-                timeout: 60000,
-                headers: { 'Content-Type': 'application/json' }
             });
             
-            if (response.data?.choices?.[0]?.message) {
-                return response.data.choices[0].message;
+            if (response?.choices?.[0]?.message) {
+                console.log(`G4F sucesso com provedor: ${providerKey}`);
+                return response.choices[0].message;
             }
         } catch (e) {
-            console.log(`G4F endpoint ${endpoint} falhou:`, e.message);
+            console.log(`G4F provedor ${providerKey} falhou:`, e.message);
+            errors.push(`${providerKey}: ${e.message}`);
             continue;
         }
     }
     
-    throw new Error('Todos os provedores GPT4Free falharam. Tente novamente ou use OpenRouter.');
+    throw new Error(`Todos os provedores GPT4Free falharam: ${errors.join('; ')}`);
 };
 
 app.post('/api/chat', auth, async (req, res) => {

@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
+    "postinstall": "curl -s 'https://raw.githubusercontent.com/gpt4free/g4f.dev/refs/heads/main/dist/js/client.js' -o node_modules/@gpt4free/g4f.dev/dist/js/client.js || true",
     "start": "node server.js"
   },
   "dependencies": {
+    "@gpt4free/g4f.dev": "^1.0.6",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "cheerio": "^1.0.0-rc.12",
