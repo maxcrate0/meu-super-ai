@@ -784,78 +784,103 @@ app.delete('/api/admin/chat/:id', auth, adminOnly, async (req, res) => {
 // ============ ADMIN - CONFIGURAÇÕES GLOBAIS ============
 
 app.get('/api/admin/config', auth, adminOnly, async (req, res) => {
-    await connectDB();
-    const apiKeyConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
-    const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
-    res.json({
-        hasGlobalApiKey: !!apiKeyConfig?.value,
-        globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null,
-        defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
-    });
+    try {
+        await connectDB();
+        const apiKeyConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
+        const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
+        res.json({
+            hasGlobalApiKey: !!apiKeyConfig?.value,
+            globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null,
+            defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
+        });
+    } catch (err) {
+        console.error('Erro ao carregar config:', err);
+        res.status(500).json({ error: 'Erro ao carregar configurações: ' + err.message });
+    }
 });
 
 // Endpoint público para obter modelo padrão (usado pelo frontend)
 app.get('/api/config/default-model', async (req, res) => {
-    await connectDB();
-    const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
-    res.json({
-        defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
-    });
+    try {
+        await connectDB();
+        const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
+        res.json({
+            defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
+        });
+    } catch (err) {
+        console.error('Erro ao obter modelo padrão:', err);
+        res.json({ defaultModel: 'google/gemini-2.0-flash-exp:free' });
+    }
 });
 
 app.post('/api/admin/config/apikey', auth, adminOnly, async (req, res) => {
-    await connectDB();
-    const { apiKey } = req.body;
-    
-    await GlobalConfig.findOneAndUpdate(
-        { key: 'OPENROUTER_API_KEY' },
-        { key: 'OPENROUTER_API_KEY', value: apiKey || '' },
-        { upsert: true }
-    );
-    
-    res.json({ 
-        success: true, 
-        hasGlobalApiKey: !!apiKey,
-        globalApiKeyPreview: apiKey ? '****' + apiKey.slice(-4) : null
-    });
+    try {
+        await connectDB();
+        const { apiKey } = req.body;
+        
+        await GlobalConfig.findOneAndUpdate(
+            { key: 'OPENROUTER_API_KEY' },
+            { key: 'OPENROUTER_API_KEY', value: apiKey || '' },
+            { upsert: true, new: true }
+        );
+        
+        res.json({ 
+            success: true, 
+            hasGlobalApiKey: !!apiKey,
+            globalApiKeyPreview: apiKey ? '****' + apiKey.slice(-4) : null
+        });
+    } catch (err) {
+        console.error('Erro ao salvar API key:', err);
+        res.status(500).json({ error: 'Erro ao salvar API key: ' + err.message });
+    }
 });
 
 // Salvar modelo padrão
 app.post('/api/admin/config/default-model', auth, adminOnly, async (req, res) => {
-    await connectDB();
-    const { model } = req.body;
-    
-    if (!model) {
-        return res.status(400).json({ error: 'Modelo é obrigatório' });
+    try {
+        await connectDB();
+        const { model } = req.body;
+        
+        if (!model) {
+            return res.status(400).json({ error: 'Modelo é obrigatório' });
+        }
+        
+        await GlobalConfig.findOneAndUpdate(
+            { key: 'DEFAULT_MODEL' },
+            { key: 'DEFAULT_MODEL', value: model },
+            { upsert: true, new: true }
+        );
+        
+        res.json({ 
+            success: true, 
+            defaultModel: model
+        });
+    } catch (err) {
+        console.error('Erro ao salvar modelo padrão:', err);
+        res.status(500).json({ error: 'Erro ao salvar modelo: ' + err.message });
     }
-    
-    await GlobalConfig.findOneAndUpdate(
-        { key: 'DEFAULT_MODEL' },
-        { key: 'DEFAULT_MODEL', value: model },
-        { upsert: true }
-    );
-    
-    res.json({ 
-        success: true, 
-        defaultModel: model
-    });
 });
 
 // ============ ESTATÍSTICAS ADMIN ============
 
 app.get('/api/admin/stats', auth, adminOnly, async (req, res) => {
-    await connectDB();
-    const totalUsers = await User.countDocuments();
-    const totalChats = await Chat.countDocuments();
-    const totalRequests = await User.aggregate([
-        { $group: { _id: null, total: { $sum: '$usage.requests' } } }
-    ]);
-    
-    res.json({
-        totalUsers,
-        totalChats,
-        totalRequests: totalRequests[0]?.total || 0
-    });
+    try {
+        await connectDB();
+        const totalUsers = await User.countDocuments();
+        const totalChats = await Chat.countDocuments();
+        const totalRequests = await User.aggregate([
+            { $group: { _id: null, total: { $sum: '$usage.requests' } } }
+        ]);
+        
+        res.json({
+            totalUsers,
+            totalChats,
+            totalRequests: totalRequests[0]?.total || 0
+        });
+    } catch (err) {
+        console.error('Erro ao carregar stats:', err);
+        res.status(500).json({ error: 'Erro ao carregar estatísticas: ' + err.message });
+    }
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
