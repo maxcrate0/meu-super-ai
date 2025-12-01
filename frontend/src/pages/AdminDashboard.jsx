@@ -23,7 +23,13 @@ export default function AdminDashboard() {
   const [apiKeyConfig, setApiKeyConfig] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [models, setModels] = useState([]);
-  const [defaultModel, setDefaultModel] = useState('');
+  const [defaultModels, setDefaultModels] = useState({
+    text: '',
+    image: '',
+    audio: '',
+    video: ''
+  });
+  const [activeModelTab, setActiveModelTab] = useState('text');
   const [showModelModal, setShowModelModal] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -73,8 +79,11 @@ export default function AdminDashboard() {
         headers: { Authorization: 'Bearer ' + token } 
       });
       setApiKeyConfig(res.data);
-      if (res.data.defaultModel) {
-        setDefaultModel(res.data.defaultModel);
+      if (res.data.defaultModels) {
+        setDefaultModels(res.data.defaultModels);
+      } else if (res.data.defaultModel) {
+        // Fallback para migração
+        setDefaultModels(prev => ({ ...prev, text: res.data.defaultModel }));
       }
       if (res.data.globalSystemPrompt) {
         setGlobalSystemPrompt(res.data.globalSystemPrompt);
@@ -105,15 +114,19 @@ export default function AdminDashboard() {
     }
   };
 
-  const saveDefaultModel = async () => {
-    if (!defaultModel) return;
+  const saveDefaultModels = async () => {
     setSavingModel(true);
     try {
-      await axios.post(API_URL + '/admin/config/default-model', 
-        { model: defaultModel },
+      await axios.post(API_URL + '/admin/config/default-models', 
+        { 
+          textModel: defaultModels.text,
+          imageModel: defaultModels.image,
+          audioModel: defaultModels.audio,
+          videoModel: defaultModels.video
+        },
         { headers: { Authorization: 'Bearer ' + token } }
       );
-      alert('Modelo padrão salvo com sucesso!');
+      alert('Modelos padrão salvos com sucesso!');
       setShowModelModal(false);
     } catch(err) {
       alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
@@ -305,13 +318,14 @@ export default function AdminDashboard() {
             onClick={() => setShowModelModal(true)}
             className="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <Cpu size={18}/> Modelo Padrão
+            <Cpu size={18}/> Modelos Padrão
           </button>
-          {defaultModel && (
-            <p className="text-xs text-purple-400 text-center truncate" title={defaultModel}>
-              ✓ {models.find(m => m.id === defaultModel)?.name || defaultModel.split('/').pop()}
-            </p>
-          )}
+          <div className="text-xs text-purple-400 text-center mt-1 flex justify-center gap-2">
+            {defaultModels.text && <span title="Texto">Txt: ✓</span>}
+            {defaultModels.image && <span title="Imagem">Img: ✓</span>}
+            {defaultModels.audio && <span title="Áudio">Aud: ✓</span>}
+            {defaultModels.video && <span title="Vídeo">Vid: ✓</span>}
+          </div>
           
           <button 
             onClick={() => setShowSystemPromptModal(true)}
@@ -624,13 +638,13 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Modal Modelo Padrão */}
+      {/* Modal Modelos Padrão */}
       {showModelModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <Cpu className="text-purple-500"/> Modelo Padrão
+                <Cpu className="text-purple-500"/> Modelos Padrão
               </h2>
               <button onClick={() => setShowModelModal(false)}>
                 <X size={24}/>
@@ -639,49 +653,71 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-4">
               <div className="bg-purple-900/30 border border-purple-600/50 p-4 rounded-lg">
                 <div className="text-sm">
-                  <p className="font-medium text-purple-400">Modelo padrão do sistema</p>
+                  <p className="font-medium text-purple-400">Modelos padrão por categoria</p>
                   <p className="text-purple-200/70 mt-1">
-                    Este modelo será selecionado automaticamente quando um usuário criar um novo chat.
+                    Defina qual modelo será usado automaticamente para cada tipo de tarefa.
                   </p>
                 </div>
               </div>
 
+              {/* Tabs */}
+              <div className="flex border-b border-gray-700">
+                {['text', 'image', 'audio', 'video'].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveModelTab(tab)}
+                    className={`flex-1 py-2 text-sm font-medium border-b-2 transition ${
+                      activeModelTab === tab 
+                        ? 'border-purple-500 text-purple-400' 
+                        : 'border-transparent text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {tab === 'text' && 'Texto'}
+                    {tab === 'image' && 'Imagem'}
+                    {tab === 'audio' && 'Áudio'}
+                    {tab === 'video' && 'Vídeo'}
+                  </button>
+                ))}
+              </div>
+
               <div>
-                <label className="text-sm text-gray-400 block mb-2">Selecione o modelo</label>
+                <label className="text-sm text-gray-400 block mb-2">
+                  Modelo para {activeModelTab === 'text' ? 'Chat/Texto' : 
+                               activeModelTab === 'image' ? 'Geração de Imagens' : 
+                               activeModelTab === 'audio' ? 'Geração de Áudio' : 'Geração de Vídeo'}
+                </label>
                 <select
                   className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
-                  value={defaultModel}
-                  onChange={e => setDefaultModel(e.target.value)}
+                  value={defaultModels[activeModelTab]}
+                  onChange={e => setDefaultModels(prev => ({ ...prev, [activeModelTab]: e.target.value }))}
                 >
                   <option value="">Selecione um modelo...</option>
                   
-                  <optgroup label="Geração de Texto (Chat)">
-                    {models.filter(m => !m.type || m.type === 'chat').sort((a,b) => a.name.localeCompare(b.name)).map(m => (
+                  {models
+                    .filter(m => {
+                      if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                      return m.type === activeModelTab;
+                    })
+                    .sort((a,b) => a.name.localeCompare(b.name))
+                    .map(m => (
                       <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
-                    ))}
-                  </optgroup>
-
-                  <optgroup label="Geração de Imagem">
-                    {models.filter(m => m.type === 'image').sort((a,b) => a.name.localeCompare(b.name)).map(m => (
-                      <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
-                    ))}
-                  </optgroup>
-
-                  <optgroup label="Geração de Áudio/Vídeo">
-                    {models.filter(m => m.type === 'audio' || m.type === 'video').sort((a,b) => a.name.localeCompare(b.name)).map(m => (
-                      <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
-                    ))}
-                  </optgroup>
+                    ))
+                  }
                 </select>
-                <p className="text-xs text-gray-500 mt-2">{models.length} modelos gratuitos disponíveis</p>
+                <p className="text-xs text-gray-500 mt-2">
+                  {models.filter(m => {
+                      if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                      return m.type === activeModelTab;
+                    }).length} modelos disponíveis nesta categoria
+                </p>
               </div>
 
               <button 
-                onClick={saveDefaultModel}
-                disabled={savingModel || !defaultModel}
+                onClick={saveDefaultModels}
+                disabled={savingModel}
                 className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 p-3 rounded-lg transition font-medium"
               >
-                {savingModel ? 'Salvando...' : 'Salvar Modelo Padrão'}
+                {savingModel ? 'Salvando...' : 'Salvar Todos os Padrões'}
               </button>
             </div>
           </div>

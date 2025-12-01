@@ -7,7 +7,8 @@ import {
   FileText, Loader2, Check, X, ExternalLink
 } from 'lucide-react';
 
-const API = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net';
+const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
+const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
 export default function ContentEditor() {
   const [activePage, setActivePage] = useState('homepage');
@@ -27,7 +28,7 @@ export default function ContentEditor() {
   const loadContent = async (page) => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/api/admin/content/${page}`, { headers });
+      const res = await axios.get(`${API_URL}/admin/content/${page}`, { headers });
       setContent(res.data);
     } catch (err) {
       alert('Erro ao carregar conteúdo: ' + err.message);
@@ -39,7 +40,7 @@ export default function ContentEditor() {
     if (!content) return;
     setSaving(true);
     try {
-      await axios.put(`${API}/api/admin/content/${activePage}`, 
+      await axios.put(`${API_URL}/admin/content/${activePage}`, 
         { sections: content.sections },
         { headers }
       );

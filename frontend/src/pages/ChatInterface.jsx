@@ -34,7 +34,13 @@ export default function ChatInterface({ user, setUser }) {
   const [models, setModels] = useState([]);
   const [g4fModels, setG4fModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-exp:free");
+  const [selectedModels, setSelectedModels] = useState({
+    text: "google/gemini-2.0-flash-exp:free",
+    image: "",
+    audio: "",
+    video: ""
+  });
+  const [activeModelTab, setActiveModelTab] = useState('text');
   const [selectedProvider, setSelectedProvider] = useState("openrouter"); // "openrouter" ou "g4f"
   const [modelSearch, setModelSearch] = useState("");
   const [userSystemPrompt, setUserSystemPrompt] = useState("");
@@ -189,26 +195,27 @@ export default function ChatInterface({ user, setUser }) {
         setG4fModels(g4fModelsRes.data);
       }
 
-      // Configura modelo padrão
-      const adminDefault = defaultModelRes.data?.defaultModel;
-      if (adminDefault) {
-        // Verifica se está no OpenRouter
-        if (modelsRes.data && modelsRes.data.find(m => m.id === adminDefault)) {
-          setSelectedModel(adminDefault);
-          setSelectedProvider('openrouter');
-        } 
-        // Verifica se está no G4F
-        else if (g4fModelsRes.data && g4fModelsRes.data.find(m => m.id === adminDefault)) {
-          setSelectedModel(adminDefault);
-          setSelectedProvider('g4f');
-        }
-      } else {
-        // Fallback se não tiver padrão configurado
-        if (modelsRes.data && modelsRes.data.length > 0 && !modelsRes.data.find(m => m.id === selectedModel)) {
-          setSelectedModel(modelsRes.data[0].id);
-          setSelectedProvider('openrouter');
-        }
+      // Configura modelos padrão
+      const defaults = defaultModelRes.data?.defaultModels || {};
+      const legacyDefault = defaultModelRes.data?.defaultModel;
+      
+      const newSelected = {
+        text: defaults.text || legacyDefault || "google/gemini-2.0-flash-exp:free",
+        image: defaults.image || "",
+        audio: defaults.audio || "",
+        video: defaults.video || ""
+      };
+      
+      setSelectedModels(newSelected);
+
+      // Define provider inicial baseado no modelo de texto
+      const textModel = newSelected.text;
+      if (modelsRes.data && modelsRes.data.find(m => m.id === textModel)) {
+        setSelectedProvider('openrouter');
+      } else if (g4fModelsRes.data && g4fModelsRes.data.find(m => m.id === textModel)) {
+        setSelectedProvider('g4f');
       }
+
     } catch(e) {
       // Fallback
       setModels([
@@ -245,7 +252,9 @@ export default function ChatInterface({ user, setUser }) {
         headers: { Authorization: 'Bearer ' + token } 
       });
       setMessages(res.data.messages || []);
-      if (res.data.model) setSelectedModel(res.data.model);
+      if (res.data.model) {
+        setSelectedModels(prev => ({ ...prev, text: res.data.model }));
+      }
       setUserSystemPrompt(res.data.userSystemPrompt || "");
     } catch(e) {
       alert('Erro ao carregar chat');
@@ -311,7 +320,7 @@ export default function ChatInterface({ user, setUser }) {
     if (!currentChatId) {
       try {
         const res = await axios.post(API_URL + '/chats', { 
-          model: selectedModel, 
+          model: selectedModels.text, 
           systemPrompt: userSystemPrompt 
         }, { 
           headers: { Authorization: 'Bearer ' + token } 
@@ -360,7 +369,8 @@ export default function ChatInterface({ user, setUser }) {
       const payload = { 
         chatId: currentChatId, 
         messages: newMsgs.map(m => ({ role: m.role, content: m.content })), 
-        model: selectedModel,
+        model: selectedModels.text,
+        models: selectedModels,
         provider: selectedProvider,
         userSystemPrompt,
         enableSwarm: swarmEnabled
@@ -549,8 +559,8 @@ export default function ChatInterface({ user, setUser }) {
               {' • '}
               <span className={textMain}>
                 {selectedProvider === 'openrouter' 
-                  ? models.find(m => m.id === selectedModel)?.name || selectedModel
-                  : g4fModels.find(m => m.id === selectedModel)?.name || selectedModel
+                  ? models.find(m => m.id === selectedModels.text)?.name || selectedModels.text
+                  : g4fModels.find(m => m.id === selectedModels.text)?.name || selectedModels.text
                 }
               </span>
             </span>
@@ -755,6 +765,26 @@ export default function ChatInterface({ user, setUser }) {
               </button>
             </div>
             <div className="p-6 space-y-6">
+              {/* Tabs */}
+              <div className={`flex ${borderColor} border-b`}>
+                {['text', 'image', 'audio', 'video'].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveModelTab(tab)}
+                    className={`flex-1 py-2 text-sm font-medium border-b-2 transition ${
+                      activeModelTab === tab 
+                        ? 'border-indigo-500 text-indigo-400' 
+                        : 'border-transparent ' + textMuted + ' hover:' + textMain
+                    }`}
+                  >
+                    {tab === 'text' && 'Texto'}
+                    {tab === 'image' && 'Imagem'}
+                    {tab === 'audio' && 'Áudio'}
+                    {tab === 'video' && 'Vídeo'}
+                  </button>
+                ))}
+              </div>
+
               {/* Seletor de Provider */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
@@ -764,7 +794,6 @@ export default function ChatInterface({ user, setUser }) {
                   <button 
                     onClick={() => {
                       setSelectedProvider('openrouter');
-                      if (models.length > 0) setSelectedModel(models[0].id);
                     }}
                     className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
                       selectedProvider === 'openrouter' ? 'bg-indigo-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
@@ -775,7 +804,6 @@ export default function ChatInterface({ user, setUser }) {
                   <button 
                     onClick={() => {
                       setSelectedProvider('g4f');
-                      if (g4fModels.length > 0) setSelectedModel(g4fModels[0].id);
                     }}
                     className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
                       selectedProvider === 'g4f' ? 'bg-emerald-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
@@ -788,7 +816,11 @@ export default function ChatInterface({ user, setUser }) {
 
               {/* Seletor de Modelo com Pesquisa */}
               <div>
-                <label className={`text-sm ${textMuted} block mb-2`}>Modelo de IA</label>
+                <label className={`text-sm ${textMuted} block mb-2`}>
+                  Modelo para {activeModelTab === 'text' ? 'Chat/Texto' : 
+                               activeModelTab === 'image' ? 'Geração de Imagens' : 
+                               activeModelTab === 'audio' ? 'Geração de Áudio' : 'Geração de Vídeo'}
+                </label>
                 <div className="relative mb-2">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500"/>
                   <input
@@ -802,18 +834,22 @@ export default function ChatInterface({ user, setUser }) {
                 <div className={`${bgInput} ${borderColor} border rounded-lg max-h-48 overflow-y-auto`}>
                   {selectedProvider === 'openrouter' ? (
                     models
+                      .filter(m => {
+                        if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                        return m.type === activeModelTab;
+                      })
                       .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
                       .map(m => (
                         <button
                           key={m.id}
-                          onClick={() => setSelectedModel(m.id)}
+                          onClick={() => setSelectedModels(prev => ({ ...prev, [activeModelTab]: m.id }))}
                           className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
-                            selectedModel === m.id 
+                            selectedModels[activeModelTab] === m.id 
                               ? 'bg-indigo-600 text-white' 
                               : 'hover:bg-indigo-500/20'
                           }`}
                         >
-                          <Database size={14} className={selectedModel === m.id ? 'text-white' : 'text-indigo-400'}/>
+                          <Database size={14} className={selectedModels[activeModelTab] === m.id ? 'text-white' : 'text-indigo-400'}/>
                           <span className="truncate">{m.name}</span>
                         </button>
                       ))
@@ -823,23 +859,28 @@ export default function ChatInterface({ user, setUser }) {
                       .map(m => (
                         <button
                           key={m.id}
-                          onClick={() => setSelectedModel(m.id)}
+                          onClick={() => setSelectedModels(prev => ({ ...prev, [activeModelTab]: m.id }))}
                           className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
-                            selectedModel === m.id 
+                            selectedModels[activeModelTab] === m.id 
                               ? 'bg-emerald-600 text-white' 
                               : 'hover:bg-emerald-500/20'
                           }`}
                         >
-                          <Zap size={14} className={selectedModel === m.id ? 'text-white' : 'text-emerald-400'}/>
+                          <Zap size={14} className={selectedModels[activeModelTab] === m.id ? 'text-white' : 'text-emerald-400'}/>
                           <span className="truncate">{m.name}</span>
-                          {m.provider && <span className={`text-xs ${selectedModel === m.id ? 'text-emerald-200' : 'text-gray-500'}`}>({m.provider})</span>}
+                          {m.provider && <span className={`text-xs ${selectedModels[activeModelTab] === m.id ? 'text-emerald-200' : 'text-gray-500'}`}>({m.provider})</span>}
                         </button>
                       ))
                   )}
                 </div>
                 <div className="flex justify-between items-center mt-2">
                   <p className={`text-xs ${textMuted}`}>
-                    {selectedProvider === 'openrouter' ? models.length : g4fModels.length} modelos disponíveis
+                    {selectedProvider === 'openrouter' 
+                      ? models.filter(m => {
+                          if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                          return m.type === activeModelTab;
+                        }).length 
+                      : g4fModels.length} modelos disponíveis
                   </p>
                   <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title="Atualizar modelos">
                     <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>

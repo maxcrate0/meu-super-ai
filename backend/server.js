@@ -700,6 +700,51 @@ Os agentes têm MEMÓRIA VOLÁTIL, então inclua TODO o contexto necessário em 
             }
         }
     },
+
+    // ============ GERAÇÃO DE MÍDIA ============
+    {
+        type: "function",
+        function: {
+            name: "generate_image",
+            description: "Gera uma imagem com base em uma descrição textual (prompt). Use para criar ilustrações, diagramas, fotos, etc.",
+            parameters: {
+                type: "object",
+                properties: {
+                    prompt: { type: "string", description: "Descrição detalhada da imagem a ser gerada" }
+                },
+                required: ["prompt"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "generate_audio",
+            description: "Gera um áudio (fala ou música) com base em uma descrição ou texto.",
+            parameters: {
+                type: "object",
+                properties: {
+                    prompt: { type: "string", description: "Texto para fala ou descrição do som" },
+                    type: { type: "string", enum: ["speech", "music"], description: "Tipo de áudio" }
+                },
+                required: ["prompt"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "generate_video",
+            description: "Gera um vídeo curto com base em uma descrição.",
+            parameters: {
+                type: "object",
+                properties: {
+                    prompt: { type: "string", description: "Descrição do vídeo" }
+                },
+                required: ["prompt"]
+            }
+        }
+    },
     
     // ============ FERRAMENTA DE CRIAÇÃO DE FERRAMENTAS ============
     {
@@ -995,7 +1040,7 @@ const executePipelineAction = async (action) => {
 };
 
 // Processa chamadas de ferramentas (incluindo swarm)
-const processToolCalls = async (toolCalls, apiKey, model, userId) => {
+const processToolCalls = async (toolCalls, apiKey, model, userId, modelsConfig = {}) => {
     const results = [];
     
     for (const toolCall of toolCalls) {
@@ -1041,6 +1086,106 @@ const processToolCalls = async (toolCalls, apiKey, model, userId) => {
                         tasks_completed: taskResults.filter(r => r.success).length,
                         tasks_failed: taskResults.filter(r => !r.success).length
                     };
+                    break;
+                }
+
+                case 'generate_image': {
+                    try {
+                        let imageModel = modelsConfig.image;
+                        if (!imageModel) {
+                            const defaults = await GlobalConfig.findOne({ key: 'DEFAULT_MODELS' });
+                            imageModel = defaults?.value?.image;
+                        }
+                        
+                        if (!imageModel) {
+                            result = { error: "Nenhum modelo de imagem configurado." };
+                            break;
+                        }
+
+                        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+                            model: imageModel,
+                            messages: [{ role: 'user', content: args.prompt }]
+                        }, {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json',
+                                'HTTP-Referer': 'https://meu-super-ai.com',
+                                'X-Title': 'Meu Super AI'
+                            }
+                        });
+                        
+                        const content = response.data.choices[0].message.content;
+                        result = { success: true, content: content, model: imageModel };
+                        
+                    } catch (err) {
+                        result = { error: `Erro ao gerar imagem: ${err.message}` };
+                    }
+                    break;
+                }
+
+                case 'generate_audio': {
+                    try {
+                        let audioModel = modelsConfig.audio;
+                        if (!audioModel) {
+                            const defaults = await GlobalConfig.findOne({ key: 'DEFAULT_MODELS' });
+                            audioModel = defaults?.value?.audio;
+                        }
+                        
+                        if (!audioModel) {
+                            result = { error: "Nenhum modelo de áudio configurado." };
+                            break;
+                        }
+                        
+                        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+                            model: audioModel,
+                            messages: [{ role: 'user', content: args.prompt }]
+                        }, {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json',
+                                'HTTP-Referer': 'https://meu-super-ai.com',
+                                'X-Title': 'Meu Super AI'
+                            }
+                        });
+                        
+                        const content = response.data.choices[0].message.content;
+                        result = { success: true, content: content, model: audioModel };
+                    } catch (err) {
+                        result = { error: `Erro ao gerar áudio: ${err.message}` };
+                    }
+                    break;
+                }
+
+                case 'generate_video': {
+                    try {
+                        let videoModel = modelsConfig.video;
+                        if (!videoModel) {
+                            const defaults = await GlobalConfig.findOne({ key: 'DEFAULT_MODELS' });
+                            videoModel = defaults?.value?.video;
+                        }
+                        
+                        if (!videoModel) {
+                            result = { error: "Nenhum modelo de vídeo configurado." };
+                            break;
+                        }
+                        
+                        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+                            model: videoModel,
+                            messages: [{ role: 'user', content: args.prompt }]
+                        }, {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json',
+                                'HTTP-Referer': 'https://meu-super-ai.com',
+                                'X-Title': 'Meu Super AI'
+                            }
+                        });
+                        
+                        const content = response.data.choices[0].message.content;
+                        result = { success: true, content: content, model: videoModel };
+                    } catch (err) {
+                        result = { error: `Erro ao gerar vídeo: ${err.message}` };
+                    }
                     break;
                 }
                 
@@ -1404,7 +1549,7 @@ app.post('/api/swarm', auth, async (req, res) => {
 
 // Endpoint de chat com suporte a ferramentas Swarm
 app.post('/api/chat/tools', auth, async (req, res) => {
-    const { chatId, messages, model, userSystemPrompt, enableSwarm = true, provider } = req.body;
+    const { chatId, messages, model, models, userSystemPrompt, enableSwarm = true, provider } = req.body;
     
     // Se usar GPT4Free (sem suporte a ferramentas, redireciona para chat simples)
     if (provider === 'g4f') {
@@ -1546,7 +1691,7 @@ return valor1 + valor2;
             msgs.push(assistantMessage);
             
             // Processa as ferramentas (passa userId para ferramentas customizadas)
-            const toolResults = await processToolCalls(assistantMessage.tool_calls, apiKey, model, req.user._id);
+            const toolResults = await processToolCalls(assistantMessage.tool_calls, apiKey, model, req.user._id, models);
             
             // Adiciona os resultados das ferramentas
             msgs.push(...toolResults);
@@ -1737,11 +1882,13 @@ app.get('/api/admin/config', auth, adminOnly, async (req, res) => {
         await connectDB();
         const apiKeyConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
         const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
+        const defaultModelsConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODELS' });
         const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
         res.json({
             hasGlobalApiKey: !!apiKeyConfig?.value,
             globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null,
             defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free',
+            defaultModels: defaultModelsConfig?.value || {},
             globalSystemPrompt: globalSystemPromptConfig?.value || ''
         });
     } catch (err) {
@@ -1755,12 +1902,14 @@ app.get('/api/config/default-model', async (req, res) => {
     try {
         await connectDB();
         const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
+        const defaultModelsConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODELS' });
         res.json({
-            defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
+            defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free',
+            defaultModels: defaultModelsConfig?.value || {}
         });
     } catch (err) {
         console.error('Erro ao obter modelo padrão:', err);
-        res.json({ defaultModel: 'google/gemini-2.0-flash-exp:free' });
+        res.json({ defaultModel: 'google/gemini-2.0-flash-exp:free', defaultModels: {} });
     }
 });
 
@@ -1786,29 +1935,32 @@ app.post('/api/admin/config/apikey', auth, adminOnly, async (req, res) => {
     }
 });
 
-// Salvar modelo padrão
-app.post('/api/admin/config/default-model', auth, adminOnly, async (req, res) => {
+// Salvar modelos padrão por categoria
+app.post('/api/admin/config/default-models', auth, adminOnly, async (req, res) => {
     try {
         await connectDB();
-        const { model } = req.body;
+        const { textModel, imageModel, audioModel, videoModel } = req.body;
         
-        if (!model) {
-            return res.status(400).json({ error: 'Modelo é obrigatório' });
-        }
-        
+        const defaults = {
+            text: textModel,
+            image: imageModel,
+            audio: audioModel,
+            video: videoModel
+        };
+
         await GlobalConfig.findOneAndUpdate(
-            { key: 'DEFAULT_MODEL' },
-            { key: 'DEFAULT_MODEL', value: model },
+            { key: 'DEFAULT_MODELS' },
+            { key: 'DEFAULT_MODELS', value: defaults },
             { upsert: true, new: true }
         );
         
         res.json({ 
             success: true, 
-            defaultModel: model
+            defaultModels: defaults
         });
     } catch (err) {
-        console.error('Erro ao salvar modelo padrão:', err);
-        res.status(500).json({ error: 'Erro ao salvar modelo: ' + err.message });
+        console.error('Erro ao salvar modelos padrão:', err);
+        res.status(500).json({ error: 'Erro ao salvar modelos: ' + err.message });
     }
 });
 
