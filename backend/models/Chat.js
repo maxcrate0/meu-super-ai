@@ -8,6 +8,14 @@ const ChatSchema = new mongoose.Schema({
     role: { type: String }, 
     content: { type: String }, 
     tool_call_id: { type: String },
+    attachments: [{
+      type: { type: String }, // 'image', 'file', 'code'
+      name: { type: String },
+      url: { type: String },
+      mimeType: { type: String },
+      size: { type: Number },
+      content: { type: String } // Para arquivos de texto/código
+    }],
     timestamp: { type: Date, default: Date.now } 
   }],
   createdAt: { type: Date, default: Date.now },

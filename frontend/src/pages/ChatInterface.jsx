@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   Cpu, Settings, LogOut, Plus, MessageSquare, Trash2, Edit2, X, Check, 
-  Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw, Zap
+  Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw, Zap,
+  Paperclip, Image, File, Wrench, Code, Terminal, Globe, ChevronDown
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -18,6 +19,15 @@ export default function ChatInterface({ user, setUser }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [swarmEnabled, setSwarmEnabled] = useState(true); // Habilita ferramentas Swarm no chat
+  
+  // Arquivos anexados
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+  
+  // Ferramentas do usuário
+  const [userTools, setUserTools] = useState([]);
+  const [showToolsPanel, setShowToolsPanel] = useState(false);
   
   // Modelos
   const [models, setModels] = useState([]);
@@ -52,6 +62,7 @@ export default function ChatInterface({ user, setUser }) {
     loadChats();
     loadModels();
     loadProfile();
+    loadUserTools();
   }, []);
 
   // Aplicar tema
@@ -70,6 +81,57 @@ export default function ChatInterface({ user, setUser }) {
       setHasPersonalKey(res.data.hasPersonalKey || false);
     } catch(e) {
       console.log('Erro ao carregar perfil');
+    }
+  };
+
+  const loadUserTools = async () => {
+    try {
+      const res = await axios.get(API_URL + '/tools', { 
+        headers: { Authorization: 'Bearer ' + token } 
+      });
+      setUserTools(res.data || []);
+    } catch(e) {
+      console.log('Erro ao carregar ferramentas');
+    }
+  };
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      files.forEach(file => formData.append('files', file));
+      
+      const res = await axios.post(API_URL + '/upload', formData, {
+        headers: { 
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      setAttachedFiles(prev => [...prev, ...res.data.files]);
+    } catch(err) {
+      alert('Erro no upload: ' + (err.response?.data?.error || err.message));
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (index) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const deleteTool = async (toolId) => {
+    if (!confirm('Tem certeza que deseja deletar esta ferramenta?')) return;
+    try {
+      await axios.delete(API_URL + '/tools/' + toolId, {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      loadUserTools();
+    } catch(err) {
+      alert('Erro ao deletar: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -184,7 +246,7 @@ export default function ChatInterface({ user, setUser }) {
   };
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && attachedFiles.length === 0) return;
     let currentChatId = activeChatId;
 
     if (!currentChatId) {
@@ -204,9 +266,33 @@ export default function ChatInterface({ user, setUser }) {
       }
     }
 
-    const newMsgs = [...messages, { role: 'user', content: input }];
+    // Monta o conteúdo da mensagem incluindo arquivos
+    let messageContent = input;
+    if (attachedFiles.length > 0) {
+      const fileDescriptions = attachedFiles.map(f => {
+        if (f.type === 'image') {
+          return `[Imagem anexada: ${f.name}]`;
+        } else if (f.content) {
+          return `[Arquivo: ${f.name}]\n\`\`\`\n${f.content.substring(0, 50000)}\n\`\`\``;
+        } else {
+          return `[Arquivo anexado: ${f.name} (${f.mimeType})]`;
+        }
+      }).join('\n\n');
+      
+      messageContent = attachedFiles.length > 0 && input 
+        ? `${input}\n\n${fileDescriptions}`
+        : fileDescriptions;
+    }
+
+    const newMsg = { 
+      role: 'user', 
+      content: messageContent,
+      attachments: attachedFiles.length > 0 ? attachedFiles : undefined
+    };
+    const newMsgs = [...messages, newMsg];
     setMessages(newMsgs);
     setInput('');
+    setAttachedFiles([]);
     setLoading(true);
 
     try {
@@ -214,7 +300,7 @@ export default function ChatInterface({ user, setUser }) {
       const endpoint = swarmEnabled ? '/chat/tools' : '/chat';
       const payload = { 
         chatId: currentChatId, 
-        messages: newMsgs, 
+        messages: newMsgs.map(m => ({ role: m.role, content: m.content })), 
         model: selectedModel, 
         userSystemPrompt,
         enableSwarm: swarmEnabled
@@ -222,7 +308,7 @@ export default function ChatInterface({ user, setUser }) {
 
       const res = await axios.post(API_URL + endpoint, payload, {
         headers: { Authorization: 'Bearer ' + token },
-        timeout: 180000 // 3 minutos para permitir múltiplas chamadas Swarm
+        timeout: 300000 // 5 minutos para ferramentas complexas
       });
 
       const reply = {
@@ -233,6 +319,7 @@ export default function ChatInterface({ user, setUser }) {
 
       setMessages([...newMsgs, reply]);
       loadChats();
+      loadUserTools(); // Recarrega ferramentas caso alguma tenha sido criada
     } catch(err) {
       let errorMsg = err.code === 'ECONNABORTED' 
         ? "Timeout - A IA demorou muito para responder."
@@ -426,7 +513,54 @@ export default function ChatInterface({ user, setUser }) {
 
         {/* Input */}
         <div className={`p-4 ${bgCard} ${borderColor} border-t`}>
+          {/* Arquivos anexados */}
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3 max-w-4xl mx-auto">
+              {attachedFiles.map((file, i) => (
+                <div key={i} className={`${bgInput} ${borderColor} border rounded-lg p-2 flex items-center gap-2 text-sm`}>
+                  {file.type === 'image' ? <Image size={16} className="text-green-400"/> : <File size={16} className="text-blue-400"/>}
+                  <span className="truncate max-w-[150px]">{file.name}</span>
+                  <button onClick={() => removeAttachment(i)} className="text-red-400 hover:text-red-300">
+                    <X size={14}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          
           <div className="flex gap-2 max-w-4xl mx-auto">
+            {/* Botão de anexar */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              multiple
+              accept="image/*,.txt,.md,.js,.jsx,.ts,.tsx,.py,.json,.csv,.html,.css,.xml,.yaml,.yml,.pdf"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading || uploading}
+              className={`${bgInput} ${borderColor} border p-4 rounded-xl hover:border-blue-500 transition disabled:opacity-50`}
+              title="Anexar arquivos"
+            >
+              {uploading ? <Loader2 className="animate-spin" size={18}/> : <Paperclip size={18}/>}
+            </button>
+            
+            {/* Botão de ferramentas */}
+            <button
+              onClick={() => setShowToolsPanel(true)}
+              className={`${bgInput} ${borderColor} border p-4 rounded-xl hover:border-purple-500 transition relative`}
+              title="Minhas Ferramentas"
+            >
+              <Wrench size={18}/>
+              {userTools.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {userTools.length}
+                </span>
+              )}
+            </button>
+            
             <input
               className={`flex-1 ${bgInput} p-4 rounded-xl ${borderColor} border outline-none focus:border-blue-500 transition`}
               placeholder="Digite sua mensagem..."
@@ -437,7 +571,7 @@ export default function ChatInterface({ user, setUser }) {
             />
             <button 
               onClick={sendMessage} 
-              disabled={loading || !input.trim()}
+              disabled={loading || (!input.trim() && attachedFiles.length === 0)}
               className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 rounded-xl font-medium transition flex items-center gap-2"
             >
               <Send size={18}/>
@@ -446,6 +580,67 @@ export default function ChatInterface({ user, setUser }) {
           </div>
         </div>
       </div>
+
+      {/* Modal Ferramentas do Usuário */}
+      {showToolsPanel && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowToolsPanel(false)}>
+          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
+            <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <Wrench className="text-purple-400"/> Minhas Ferramentas ({userTools.length})
+              </h2>
+              <button onClick={() => setShowToolsPanel(false)} className={textMuted}>
+                <X size={24}/>
+              </button>
+            </div>
+            <div className="p-6">
+              {userTools.length === 0 ? (
+                <div className={`text-center ${textMuted} py-8`}>
+                  <Wrench size={48} className="mx-auto mb-4 opacity-50"/>
+                  <p>Nenhuma ferramenta criada ainda</p>
+                  <p className="text-sm mt-2">Peça para a IA criar uma ferramenta para você!</p>
+                  <p className="text-xs mt-4 opacity-70">Exemplo: "Crie uma ferramenta que calcula o IMC"</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {userTools.map(tool => (
+                    <div key={tool._id} className={`${bgInput} ${borderColor} border rounded-xl p-4`}>
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h3 className="font-bold text-purple-400">{tool.name}</h3>
+                          <p className={`text-sm ${textMuted}`}>{tool.description}</p>
+                        </div>
+                        <button 
+                          onClick={() => deleteTool(tool._id)}
+                          className="text-red-400 hover:text-red-300 p-1"
+                        >
+                          <Trash2 size={16}/>
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs mt-3">
+                        <span className={textMuted}>Usos: {tool.executionCount || 0}</span>
+                        {tool.lastExecuted && (
+                          <span className={textMuted}>
+                            Último uso: {new Date(tool.lastExecuted).toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                      </div>
+                      <details className="mt-3">
+                        <summary className={`text-xs ${textMuted} cursor-pointer hover:text-blue-400`}>
+                          Ver código
+                        </summary>
+                        <pre className={`mt-2 ${bgCard} p-3 rounded-lg text-xs overflow-auto max-h-32 text-green-400`}>
+                          {tool.code}
+                        </pre>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Config Chat */}
       {showChatConfig && (

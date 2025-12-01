@@ -7,17 +7,49 @@ const bcrypt = require('bcryptjs');
 const OpenAI = require('openai');
 const axios = require('axios');
 const compression = require('compression');
+const { exec } = require('child_process');
+const util = require('util');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const cheerio = require('cheerio');
 const User = require('./models/User');
 const Chat = require('./models/Chat');
 const CustomTool = require('./models/CustomTool');
 const GlobalConfig = require('./models/GlobalConfig');
 
+const execPromise = util.promisify(exec);
 const app = express();
+
+// Configuração do Multer para upload de arquivos
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname);
+        cb(null, uniqueName);
+    }
+});
+const upload = multer({ 
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|gif|webp|pdf|txt|md|js|jsx|ts|tsx|py|json|csv|html|css|xml|yaml|yml/;
+        const ext = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mime = allowedTypes.test(file.mimetype) || file.mimetype.startsWith('image/') || file.mimetype.startsWith('text/');
+        if (ext || mime) cb(null, true);
+        else cb(new Error('Tipo de arquivo não suportado'));
+    }
+});
 
 // Middlewares
 app.use(compression());
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'] }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -190,6 +222,132 @@ app.patch('/api/user/profile', auth, async (req, res) => {
     });
 });
 
+// ============ FERRAMENTAS CUSTOMIZADAS DO USUÁRIO ============
+
+// Listar ferramentas do usuário
+app.get('/api/tools', auth, async (req, res) => {
+    try {
+        await connectDB();
+        const tools = await CustomTool.find({ userId: req.user._id });
+        res.json(tools);
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao listar ferramentas: ' + err.message });
+    }
+});
+
+// Criar nova ferramenta
+app.post('/api/tools', auth, async (req, res) => {
+    try {
+        await connectDB();
+        const { name, description, code, parameters } = req.body;
+        
+        if (!name || !description || !code) {
+            return res.status(400).json({ error: 'Nome, descrição e código são obrigatórios' });
+        }
+        
+        const tool = await CustomTool.create({
+            userId: req.user._id,
+            name: name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase(),
+            description,
+            code,
+            parameters: parameters || {}
+        });
+        
+        res.json(tool);
+    } catch (err) {
+        if (err.code === 11000) {
+            return res.status(400).json({ error: 'Já existe uma ferramenta com esse nome' });
+        }
+        res.status(500).json({ error: 'Erro ao criar ferramenta: ' + err.message });
+    }
+});
+
+// Obter ferramenta específica
+app.get('/api/tools/:id', auth, async (req, res) => {
+    try {
+        await connectDB();
+        const tool = await CustomTool.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
+        res.json(tool);
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao buscar ferramenta: ' + err.message });
+    }
+});
+
+// Atualizar ferramenta
+app.patch('/api/tools/:id', auth, async (req, res) => {
+    try {
+        await connectDB();
+        const { name, description, code, parameters, isActive } = req.body;
+        const updates = { updatedAt: Date.now() };
+        
+        if (name) updates.name = name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+        if (description) updates.description = description;
+        if (code) updates.code = code;
+        if (parameters) updates.parameters = parameters;
+        if (typeof isActive === 'boolean') updates.isActive = isActive;
+        
+        const tool = await CustomTool.findOneAndUpdate(
+            { _id: req.params.id, userId: req.user._id },
+            updates,
+            { new: true }
+        );
+        
+        if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
+        res.json(tool);
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao atualizar ferramenta: ' + err.message });
+    }
+});
+
+// Deletar ferramenta
+app.delete('/api/tools/:id', auth, async (req, res) => {
+    try {
+        await connectDB();
+        const result = await CustomTool.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+        if (!result) return res.status(404).json({ error: 'Ferramenta não encontrada' });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao deletar ferramenta: ' + err.message });
+    }
+});
+
+// ============ UPLOAD DE ARQUIVOS ============
+
+app.post('/api/upload', auth, upload.array('files', 10), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+        }
+        
+        const uploadedFiles = req.files.map(file => {
+            const isImage = file.mimetype.startsWith('image/');
+            const isText = file.mimetype.startsWith('text/') || 
+                           /\.(txt|md|js|jsx|ts|tsx|py|json|csv|html|css|xml|yaml|yml)$/i.test(file.originalname);
+            
+            let content = null;
+            if (isText) {
+                try {
+                    content = fs.readFileSync(file.path, 'utf8').substring(0, 100000); // Max 100KB de texto
+                } catch(e) {}
+            }
+            
+            return {
+                type: isImage ? 'image' : 'file',
+                name: file.originalname,
+                url: `/uploads/${file.filename}`,
+                mimeType: file.mimetype,
+                size: file.size,
+                content
+            };
+        });
+        
+        res.json({ files: uploadedFiles });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro no upload: ' + err.message });
+    }
+});
+
 // ============ CHATS ============
 
 app.get('/api/chats', auth, async (req, res) => {
@@ -300,7 +458,8 @@ app.post('/api/chat', auth, async (req, res) => {
 // ============ SISTEMA SWARM AVANÇADO ============
 
 // Definição das ferramentas disponíveis para a IA (incluindo swarm)
-const getAvailableTools = () => [
+const getAvailableTools = (userId) => [
+    // ============ FERRAMENTAS SWARM ============
     {
         type: "function",
         function: {
@@ -310,9 +469,7 @@ Use esta ferramenta para:
 - Executar múltiplas tarefas em PARALELO para maior eficiência
 - Processar dados extensos sem ocupar sua janela de contexto
 - Analisar, resumir ou transformar informações
-- Executar cálculos ou processamentos complexos
-- Pesquisar e sintetizar informações
-Os agentes têm MEMÓRIA VOLÁTIL (não lembram de requisições anteriores), então inclua TODO o contexto necessário em cada tarefa.`,
+Os agentes têm MEMÓRIA VOLÁTIL, então inclua TODO o contexto necessário em cada tarefa.`,
             parameters: {
                 type: "object",
                 properties: {
@@ -322,22 +479,10 @@ Os agentes têm MEMÓRIA VOLÁTIL (não lembram de requisições anteriores), en
                         items: {
                             type: "object",
                             properties: {
-                                id: {
-                                    type: "string",
-                                    description: "Identificador único da tarefa (ex: 'task_1', 'analise_dados')"
-                                },
-                                instruction: {
-                                    type: "string",
-                                    description: "Instrução clara e completa para o agente executar. Inclua TODO o contexto necessário pois o agente não tem memória de conversas anteriores."
-                                },
-                                context: {
-                                    type: "string",
-                                    description: "Dados ou contexto adicional que o agente precisa para executar a tarefa (opcional, mas recomendado)"
-                                },
-                                output_format: {
-                                    type: "string",
-                                    description: "Formato esperado da resposta (ex: 'json', 'lista', 'resumo', 'análise detalhada')"
-                                }
+                                id: { type: "string", description: "Identificador único da tarefa" },
+                                instruction: { type: "string", description: "Instrução clara e completa para o agente" },
+                                context: { type: "string", description: "Dados ou contexto adicional (opcional)" },
+                                output_format: { type: "string", description: "Formato esperado da resposta" }
                             },
                             required: ["id", "instruction"]
                         }
@@ -347,45 +492,216 @@ Os agentes têm MEMÓRIA VOLÁTIL (não lembram de requisições anteriores), en
             }
         }
     },
+    
+    // ============ FERRAMENTA DE CRIAÇÃO DE FERRAMENTAS ============
     {
         type: "function",
         function: {
-            name: "swarm_pipeline",
-            description: `Executa uma ferramenta/ação e envia o resultado diretamente para um agente Swarm processar, retornando apenas o resultado final.
-Use para economizar contexto quando você precisa:
-- Obter dados de uma fonte e processá-los sem ver os dados brutos
-- Encadear operações onde você só precisa do resultado final
-- Fazer análises de dados extensos
-O agente processador tem memória volátil e recebe apenas: sua instrução + resultado da ação.`,
+            name: "create_custom_tool",
+            description: `Cria uma nova ferramenta personalizada para o usuário. A ferramenta ficará salva e poderá ser usada em conversas futuras.
+Use quando o usuário pedir para criar uma ferramenta, script, automação ou funcionalidade reutilizável.
+O código deve ser JavaScript válido que retorna um resultado.`,
             parameters: {
                 type: "object",
                 properties: {
-                    action: {
+                    name: {
+                        type: "string",
+                        description: "Nome único da ferramenta (sem espaços, use underscore). Ex: 'calcular_imc', 'formatar_cpf'"
+                    },
+                    description: {
+                        type: "string", 
+                        description: "Descrição clara do que a ferramenta faz"
+                    },
+                    code: {
+                        type: "string",
+                        description: "Código JavaScript da ferramenta. Deve ser uma função que recebe 'params' e retorna resultado. Ex: 'const {peso, altura} = params; return peso / (altura * altura);'"
+                    },
+                    parameters: {
                         type: "object",
-                        description: "A ação a ser executada primeiro",
+                        description: "Schema dos parâmetros que a ferramenta aceita",
                         properties: {
-                            type: {
-                                type: "string",
-                                enum: ["http_get", "http_post", "calculate", "generate_data"],
-                                description: "Tipo da ação"
-                            },
-                            params: {
-                                type: "object",
-                                description: "Parâmetros da ação (url para http, expression para calculate, etc)"
-                            }
-                        },
-                        required: ["type", "params"]
-                    },
-                    processing_instruction: {
-                        type: "string",
-                        description: "Instrução para o agente Swarm sobre como processar o resultado da ação"
-                    },
-                    output_format: {
-                        type: "string",
-                        description: "Formato desejado do resultado final"
+                            type: { type: "string", default: "object" },
+                            properties: { type: "object" },
+                            required: { type: "array", items: { type: "string" } }
+                        }
                     }
                 },
-                required: ["action", "processing_instruction"]
+                required: ["name", "description", "code"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE EXECUÇÃO DE FERRAMENTAS CUSTOMIZADAS ============
+    {
+        type: "function",
+        function: {
+            name: "execute_custom_tool",
+            description: `Executa uma ferramenta personalizada criada anteriormente pelo usuário.
+Liste as ferramentas disponíveis com list_custom_tools antes de usar.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    tool_name: { type: "string", description: "Nome da ferramenta a executar" },
+                    params: { type: "object", description: "Parâmetros para passar à ferramenta" }
+                },
+                required: ["tool_name"]
+            }
+        }
+    },
+    
+    // ============ LISTAR FERRAMENTAS DO USUÁRIO ============
+    {
+        type: "function",
+        function: {
+            name: "list_custom_tools",
+            description: "Lista todas as ferramentas personalizadas criadas pelo usuário atual.",
+            parameters: { type: "object", properties: {} }
+        }
+    },
+    
+    // ============ DELETAR FERRAMENTA ============
+    {
+        type: "function",
+        function: {
+            name: "delete_custom_tool",
+            description: "Remove uma ferramenta personalizada do usuário.",
+            parameters: {
+                type: "object",
+                properties: {
+                    tool_name: { type: "string", description: "Nome da ferramenta a deletar" }
+                },
+                required: ["tool_name"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE TERMINAL BASH ============
+    {
+        type: "function",
+        function: {
+            name: "execute_bash",
+            description: `Executa comandos no terminal bash do servidor. 
+Use para: instalar pacotes, manipular arquivos, executar scripts, verificar sistema.
+ATENÇÃO: Comandos perigosos como rm -rf / são bloqueados.
+Timeout: 30 segundos.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    command: { 
+                        type: "string", 
+                        description: "Comando bash a executar. Ex: 'ls -la', 'echo hello', 'python script.py'" 
+                    },
+                    working_directory: {
+                        type: "string",
+                        description: "Diretório onde executar o comando (opcional, default: /tmp)"
+                    }
+                },
+                required: ["command"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE PESQUISA WEB ============
+    {
+        type: "function",
+        function: {
+            name: "web_search",
+            description: `Faz uma pesquisa na web e retorna os resultados.
+Use para buscar informações atualizadas, notícias, dados em tempo real.
+Retorna título, link e snippet dos resultados.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    query: { type: "string", description: "Termo de busca" },
+                    num_results: { type: "number", description: "Número de resultados (max 10, default 5)" }
+                },
+                required: ["query"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE SCRAPING WEB ============
+    {
+        type: "function", 
+        function: {
+            name: "web_scrape",
+            description: `Acessa uma URL e extrai o conteúdo da página.
+Use para: ler artigos, extrair dados, verificar conteúdo de sites.
+Retorna o texto principal da página.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    url: { type: "string", description: "URL completa da página a acessar" },
+                    selector: { type: "string", description: "Seletor CSS opcional para extrair elemento específico" },
+                    get_links: { type: "boolean", description: "Se true, retorna também os links da página" }
+                },
+                required: ["url"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE CONSOLE DO NAVEGADOR ============
+    {
+        type: "function",
+        function: {
+            name: "browser_console",
+            description: `Executa JavaScript no console de um site usando Puppeteer.
+Use para: interagir com páginas, extrair dados dinâmicos, testar código JS em contexto de página.
+Retorna o resultado da execução.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    url: { type: "string", description: "URL do site onde executar o código" },
+                    code: { type: "string", description: "Código JavaScript a executar no console" },
+                    wait_for: { type: "string", description: "Seletor CSS para aguardar antes de executar (opcional)" }
+                },
+                required: ["url", "code"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE NETWORK/REQUESTS ============
+    {
+        type: "function",
+        function: {
+            name: "network_monitor",
+            description: `Monitora as requisições de rede feitas por uma página.
+Use para: analisar APIs chamadas por um site, capturar dados de requisições XHR/Fetch.
+Retorna lista de requisições com URL, método, status e headers.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    url: { type: "string", description: "URL do site para monitorar" },
+                    filter_type: { 
+                        type: "string", 
+                        enum: ["xhr", "fetch", "script", "image", "all"],
+                        description: "Tipo de requisição para filtrar (default: all)" 
+                    },
+                    wait_time: { type: "number", description: "Tempo em ms para aguardar requisições (default: 5000)" },
+                    capture_body: { type: "boolean", description: "Se true, captura também o corpo das respostas" }
+                },
+                required: ["url"]
+            }
+        }
+    },
+    
+    // ============ FERRAMENTA DE HTTP REQUEST ============
+    {
+        type: "function",
+        function: {
+            name: "http_request",
+            description: `Faz uma requisição HTTP customizada.
+Use para: chamar APIs, enviar dados, testar endpoints.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    url: { type: "string", description: "URL da requisição" },
+                    method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"], description: "Método HTTP" },
+                    headers: { type: "object", description: "Headers da requisição" },
+                    body: { type: "object", description: "Corpo da requisição (para POST/PUT/PATCH)" },
+                    timeout: { type: "number", description: "Timeout em ms (default: 30000)" }
+                },
+                required: ["url"]
             }
         }
     }
@@ -471,7 +787,7 @@ const executePipelineAction = async (action) => {
 };
 
 // Processa chamadas de ferramentas (incluindo swarm)
-const processToolCalls = async (toolCalls, apiKey, model) => {
+const processToolCalls = async (toolCalls, apiKey, model, userId) => {
     const results = [];
     
     for (const toolCall of toolCalls) {
@@ -489,89 +805,366 @@ const processToolCalls = async (toolCalls, apiKey, model) => {
             continue;
         }
 
-        if (funcName === 'swarm_delegate') {
-            // Verifica se tasks existe e é um array
-            const tasks = args.tasks || args.task || [];
-            const taskArray = Array.isArray(tasks) ? tasks : [tasks];
+        try {
+            let result;
             
-            if (taskArray.length === 0) {
-                results.push({
-                    tool_call_id: toolCall.id,
-                    role: "tool",
-                    content: JSON.stringify({ error: "Nenhuma tarefa fornecida para o swarm_delegate" })
-                });
-                continue;
+            switch (funcName) {
+                case 'swarm_delegate': {
+                    const tasks = args.tasks || args.task || [];
+                    const taskArray = Array.isArray(tasks) ? tasks : [tasks];
+                    
+                    if (taskArray.length === 0) {
+                        result = { error: "Nenhuma tarefa fornecida" };
+                        break;
+                    }
+                    
+                    const normalizedTasks = taskArray.map((t, i) => ({
+                        id: t.id || `task_${i + 1}`,
+                        instruction: t.instruction || t.task || t.prompt || String(t),
+                        context: t.context || t.data || '',
+                        output_format: t.output_format || t.format || ''
+                    }));
+                    
+                    const taskPromises = normalizedTasks.map(task => executeSwarmAgent(apiKey, task, model));
+                    const taskResults = await Promise.all(taskPromises);
+                    
+                    result = {
+                        swarm_results: taskResults,
+                        tasks_completed: taskResults.filter(r => r.success).length,
+                        tasks_failed: taskResults.filter(r => !r.success).length
+                    };
+                    break;
+                }
+                
+                case 'create_custom_tool': {
+                    const toolName = args.name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+                    const newTool = await CustomTool.create({
+                        userId,
+                        name: toolName,
+                        description: args.description,
+                        code: args.code,
+                        parameters: args.parameters || {}
+                    });
+                    result = { 
+                        success: true, 
+                        message: `Ferramenta "${toolName}" criada com sucesso!`,
+                        tool: { name: newTool.name, description: newTool.description }
+                    };
+                    break;
+                }
+                
+                case 'execute_custom_tool': {
+                    const tool = await CustomTool.findOne({ userId, name: args.tool_name });
+                    if (!tool) {
+                        result = { error: `Ferramenta "${args.tool_name}" não encontrada` };
+                        break;
+                    }
+                    
+                    try {
+                        // Executa o código da ferramenta em sandbox
+                        const fn = new Function('params', tool.code);
+                        const execResult = fn(args.params || {});
+                        
+                        // Atualiza estatísticas
+                        await CustomTool.findByIdAndUpdate(tool._id, { 
+                            $inc: { executionCount: 1 },
+                            lastExecuted: new Date()
+                        });
+                        
+                        result = { success: true, result: execResult };
+                    } catch (execErr) {
+                        result = { error: `Erro ao executar ferramenta: ${execErr.message}` };
+                    }
+                    break;
+                }
+                
+                case 'list_custom_tools': {
+                    const tools = await CustomTool.find({ userId, isActive: true })
+                        .select('name description parameters executionCount');
+                    result = { 
+                        tools: tools.map(t => ({
+                            name: t.name,
+                            description: t.description,
+                            parameters: t.parameters,
+                            uses: t.executionCount
+                        })),
+                        count: tools.length
+                    };
+                    break;
+                }
+                
+                case 'delete_custom_tool': {
+                    const deleted = await CustomTool.findOneAndDelete({ userId, name: args.tool_name });
+                    if (!deleted) {
+                        result = { error: `Ferramenta "${args.tool_name}" não encontrada` };
+                    } else {
+                        result = { success: true, message: `Ferramenta "${args.tool_name}" deletada` };
+                    }
+                    break;
+                }
+                
+                case 'execute_bash': {
+                    // Lista de comandos bloqueados por segurança
+                    const blockedPatterns = [
+                        /rm\s+-rf\s+\//, /rm\s+-rf\s+\*/, /mkfs/, /dd\s+if=/, 
+                        /:\(\)\{.*\}/, /fork\s*bomb/, />\s*\/dev\/sd/,
+                        /chmod\s+-R\s+777\s+\//, /wget.*\|.*sh/, /curl.*\|.*sh/
+                    ];
+                    
+                    const cmd = args.command;
+                    if (blockedPatterns.some(p => p.test(cmd))) {
+                        result = { error: "Comando bloqueado por segurança" };
+                        break;
+                    }
+                    
+                    const workDir = args.working_directory || '/tmp';
+                    try {
+                        const { stdout, stderr } = await execPromise(cmd, { 
+                            cwd: workDir, 
+                            timeout: 30000,
+                            maxBuffer: 1024 * 1024 // 1MB max output
+                        });
+                        result = { 
+                            success: true, 
+                            stdout: stdout.substring(0, 50000), 
+                            stderr: stderr.substring(0, 10000) 
+                        };
+                    } catch (execErr) {
+                        result = { 
+                            error: execErr.message,
+                            stdout: execErr.stdout?.substring(0, 10000),
+                            stderr: execErr.stderr?.substring(0, 10000)
+                        };
+                    }
+                    break;
+                }
+                
+                case 'web_search': {
+                    // Usa DuckDuckGo HTML para busca (não requer API key)
+                    try {
+                        const query = encodeURIComponent(args.query);
+                        const numResults = Math.min(args.num_results || 5, 10);
+                        
+                        const response = await axios.get(`https://html.duckduckgo.com/html/?q=${query}`, {
+                            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                            timeout: 15000
+                        });
+                        
+                        const $ = cheerio.load(response.data);
+                        const searchResults = [];
+                        
+                        $('.result').slice(0, numResults).each((i, el) => {
+                            const title = $(el).find('.result__title').text().trim();
+                            const link = $(el).find('.result__url').attr('href') || $(el).find('a').attr('href');
+                            const snippet = $(el).find('.result__snippet').text().trim();
+                            
+                            if (title && link) {
+                                searchResults.push({ title, link, snippet });
+                            }
+                        });
+                        
+                        result = { 
+                            success: true, 
+                            query: args.query,
+                            results: searchResults,
+                            count: searchResults.length
+                        };
+                    } catch (searchErr) {
+                        result = { error: `Erro na busca: ${searchErr.message}` };
+                    }
+                    break;
+                }
+                
+                case 'web_scrape': {
+                    try {
+                        const response = await axios.get(args.url, {
+                            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                            timeout: 20000,
+                            maxContentLength: 5 * 1024 * 1024 // 5MB max
+                        });
+                        
+                        const $ = cheerio.load(response.data);
+                        
+                        // Remove scripts e styles
+                        $('script, style, noscript, iframe').remove();
+                        
+                        let content;
+                        if (args.selector) {
+                            content = $(args.selector).text().trim();
+                        } else {
+                            // Tenta extrair conteúdo principal
+                            content = $('article, main, .content, #content, .post, .article').first().text().trim();
+                            if (!content) content = $('body').text().trim();
+                        }
+                        
+                        // Limpa espaços extras
+                        content = content.replace(/\s+/g, ' ').substring(0, 50000);
+                        
+                        const links = args.get_links ? 
+                            $('a[href]').map((i, el) => ({ 
+                                text: $(el).text().trim().substring(0, 100), 
+                                href: $(el).attr('href') 
+                            })).get().slice(0, 50) : undefined;
+                        
+                        result = { 
+                            success: true,
+                            url: args.url,
+                            title: $('title').text().trim(),
+                            content,
+                            links
+                        };
+                    } catch (scrapeErr) {
+                        result = { error: `Erro ao acessar página: ${scrapeErr.message}` };
+                    }
+                    break;
+                }
+                
+                case 'browser_console': {
+                    try {
+                        const puppeteer = require('puppeteer');
+                        const browser = await puppeteer.launch({ 
+                            headless: 'new',
+                            args: ['--no-sandbox', '--disable-setuid-sandbox']
+                        });
+                        
+                        const page = await browser.newPage();
+                        await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 30000 });
+                        
+                        if (args.wait_for) {
+                            await page.waitForSelector(args.wait_for, { timeout: 10000 });
+                        }
+                        
+                        const consoleResult = await page.evaluate(args.code);
+                        await browser.close();
+                        
+                        result = { 
+                            success: true,
+                            url: args.url,
+                            result: consoleResult
+                        };
+                    } catch (browserErr) {
+                        result = { error: `Erro no browser: ${browserErr.message}` };
+                    }
+                    break;
+                }
+                
+                case 'network_monitor': {
+                    try {
+                        const puppeteer = require('puppeteer');
+                        const browser = await puppeteer.launch({ 
+                            headless: 'new',
+                            args: ['--no-sandbox', '--disable-setuid-sandbox']
+                        });
+                        
+                        const page = await browser.newPage();
+                        const requests = [];
+                        
+                        // Intercepta requisições
+                        await page.setRequestInterception(true);
+                        
+                        page.on('request', request => {
+                            const resourceType = request.resourceType();
+                            const filterType = args.filter_type || 'all';
+                            
+                            if (filterType === 'all' || 
+                                (filterType === 'xhr' && resourceType === 'xhr') ||
+                                (filterType === 'fetch' && resourceType === 'fetch') ||
+                                (filterType === 'script' && resourceType === 'script') ||
+                                (filterType === 'image' && resourceType === 'image')) {
+                                
+                                requests.push({
+                                    url: request.url(),
+                                    method: request.method(),
+                                    resourceType,
+                                    headers: request.headers()
+                                });
+                            }
+                            request.continue();
+                        });
+                        
+                        page.on('response', async response => {
+                            const req = requests.find(r => r.url === response.url());
+                            if (req) {
+                                req.status = response.status();
+                                req.statusText = response.statusText();
+                                
+                                if (args.capture_body) {
+                                    try {
+                                        const text = await response.text();
+                                        req.body = text.substring(0, 10000);
+                                    } catch(e) {}
+                                }
+                            }
+                        });
+                        
+                        await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 30000 });
+                        
+                        // Aguarda tempo adicional para capturar mais requisições
+                        await new Promise(resolve => setTimeout(resolve, args.wait_time || 5000));
+                        
+                        await browser.close();
+                        
+                        result = { 
+                            success: true,
+                            url: args.url,
+                            requests: requests.slice(0, 100),
+                            count: requests.length
+                        };
+                    } catch (netErr) {
+                        result = { error: `Erro no monitor: ${netErr.message}` };
+                    }
+                    break;
+                }
+                
+                case 'http_request': {
+                    try {
+                        const config = {
+                            url: args.url,
+                            method: args.method || 'GET',
+                            headers: args.headers || {},
+                            timeout: args.timeout || 30000
+                        };
+                        
+                        if (['POST', 'PUT', 'PATCH'].includes(config.method) && args.body) {
+                            config.data = args.body;
+                        }
+                        
+                        const response = await axios(config);
+                        
+                        result = {
+                            success: true,
+                            status: response.status,
+                            statusText: response.statusText,
+                            headers: response.headers,
+                            data: typeof response.data === 'string' ? 
+                                response.data.substring(0, 50000) : 
+                                JSON.stringify(response.data).substring(0, 50000)
+                        };
+                    } catch (httpErr) {
+                        result = { 
+                            error: httpErr.message,
+                            status: httpErr.response?.status,
+                            data: httpErr.response?.data
+                        };
+                    }
+                    break;
+                }
+                
+                default:
+                    result = { error: `Ferramenta desconhecida: ${funcName}` };
             }
-            
-            // Normaliza as tarefas (caso venham em formato diferente)
-            const normalizedTasks = taskArray.map((t, i) => ({
-                id: t.id || `task_${i + 1}`,
-                instruction: t.instruction || t.task || t.prompt || String(t),
-                context: t.context || t.data || '',
-                output_format: t.output_format || t.format || ''
-            }));
-            
-            // Executa todas as tarefas em paralelo
-            const taskPromises = normalizedTasks.map(task => executeSwarmAgent(apiKey, task, model));
-            const taskResults = await Promise.all(taskPromises);
             
             results.push({
                 tool_call_id: toolCall.id,
                 role: "tool",
-                content: JSON.stringify({
-                    swarm_results: taskResults,
-                    tasks_completed: taskResults.filter(r => r.success).length,
-                    tasks_failed: taskResults.filter(r => !r.success).length
-                })
+                content: JSON.stringify(result)
             });
-        } 
-        else if (funcName === 'swarm_pipeline') {
-            // Verifica se action existe
-            if (!args.action) {
-                results.push({
-                    tool_call_id: toolCall.id,
-                    role: "tool",
-                    content: JSON.stringify({ error: "Nenhuma ação fornecida para o swarm_pipeline" })
-                });
-                continue;
-            }
             
-            // 1. Executa a ação
-            const actionResult = await executePipelineAction(args.action);
-            
-            if (!actionResult.success) {
-                results.push({
-                    tool_call_id: toolCall.id,
-                    role: "tool",
-                    content: JSON.stringify({ error: "Falha na ação: " + actionResult.error })
-                });
-                continue;
-            }
-            
-            // 2. Envia para agente Swarm processar
-            const processingTask = {
-                id: "pipeline_result",
-                instruction: args.processing_instruction || args.instruction || "Processe os dados recebidos",
-                context: actionResult.data,
-                output_format: args.output_format || ''
-            };
-            
-            const processedResult = await executeSwarmAgent(apiKey, processingTask, model);
-            
+        } catch (err) {
             results.push({
                 tool_call_id: toolCall.id,
                 role: "tool",
-                content: JSON.stringify({
-                    pipeline_result: processedResult.result,
-                    success: processedResult.success
-                })
-            });
-        }
-        else {
-            results.push({
-                tool_call_id: toolCall.id,
-                role: "tool",
-                content: JSON.stringify({ error: "Ferramenta desconhecida: " + funcName })
+                content: JSON.stringify({ error: `Erro na ferramenta ${funcName}: ${err.message}` })
             });
         }
     }
@@ -619,51 +1212,63 @@ app.post('/api/chat/tools', auth, async (req, res) => {
         }
     });
 
-    // System prompt ensinando a IA a usar o Swarm
-    const swarmInstructions = enableSwarm ? `
+    // System prompt com todas as ferramentas disponíveis
+    const toolsInstructions = enableSwarm ? `
 
-## FERRAMENTAS SWARM DISPONÍVEIS
+## FERRAMENTAS DISPONÍVEIS
 
-Você tem acesso a um sistema de agentes Swarm para executar tarefas de forma eficiente:
+Você tem acesso a um poderoso conjunto de ferramentas. Use-as quando necessário:
 
-### 1. swarm_delegate
-Use para delegar tarefas a agentes secundários (IAs auxiliares):
-- Execute MÚLTIPLAS tarefas em PARALELO para maior eficiência
-- Os agentes têm MEMÓRIA VOLÁTIL - inclua TODO contexto necessário
-- Ideal para: análises, resumos, cálculos, processamentos, pesquisas
-- O resultado de cada agente volta diretamente para você
+### 🔄 DELEGAÇÃO (Swarm)
+- **swarm_delegate**: Delega tarefas para agentes paralelos. Use para múltiplas tarefas independentes.
 
-Exemplo de uso:
-- Usuário pede para analisar 3 tópicos diferentes → delegue cada análise para um agente separado
-- Precisa processar dados extensos → delegue para não ocupar seu contexto
-- Tarefas independentes → execute em paralelo para responder mais rápido
+### 🛠️ FERRAMENTAS CUSTOMIZADAS  
+- **create_custom_tool**: Cria uma nova ferramenta reutilizável para o usuário
+- **execute_custom_tool**: Executa uma ferramenta criada anteriormente
+- **list_custom_tools**: Lista ferramentas do usuário
+- **delete_custom_tool**: Remove uma ferramenta
 
-### 2. swarm_pipeline  
-Use para encadear ações onde você só precisa do resultado final:
-- Busca dados (HTTP) → agente processa → você recebe só o resultado
-- Economiza sua janela de contexto
-- Ideal quando não precisa ver os dados brutos
+### 💻 TERMINAL
+- **execute_bash**: Executa comandos no terminal bash (com segurança)
 
-### QUANDO USAR SWARM:
-✅ Múltiplas tarefas independentes (paralelize!)
-✅ Processamento de dados extensos
-✅ Análises que não precisam de contexto anterior
-✅ Quando quiser economizar tokens/contexto
-✅ Tarefas bem definidas e autocontidas
+### 🌐 WEB
+- **web_search**: Pesquisa na web (DuckDuckGo)
+- **web_scrape**: Extrai conteúdo de páginas web
+- **http_request**: Faz requisições HTTP customizadas
 
-### QUANDO NÃO USAR:
-❌ Tarefas simples que você resolve rapidamente
-❌ Quando precisa de contexto da conversa anterior
-❌ Interações que requerem continuidade
+### 🔍 NAVEGADOR AVANÇADO (Puppeteer)
+- **browser_console**: Executa JavaScript no console de um site
+- **network_monitor**: Monitora requisições de rede de uma página
+
+### QUANDO USAR CADA FERRAMENTA:
+- Usuário quer criar automação/script → **create_custom_tool**
+- Precisa de informação atualizada → **web_search**
+- Quer dados de um site específico → **web_scrape** ou **browser_console**
+- Quer analisar APIs de um site → **network_monitor**
+- Precisa executar código local → **execute_bash**
+- Múltiplas tarefas independentes → **swarm_delegate**
+
+### CRIANDO FERRAMENTAS:
+Quando o usuário pedir para criar uma ferramenta, use create_custom_tool com:
+- name: nome_em_snake_case
+- description: O que a ferramenta faz
+- code: Código JavaScript que recebe 'params' e retorna resultado
+- parameters: Schema dos parâmetros aceitos
+
+Exemplo de código para ferramenta:
+\`\`\`javascript
+const { valor1, valor2 } = params;
+return valor1 + valor2;
+\`\`\`
 ` : '';
 
     const systemContent = [];
-    systemContent.push(`Você é um assistente de IA avançado com capacidades de delegação de tarefas.${swarmInstructions}`);
+    systemContent.push(`Você é um assistente de IA avançado com acesso a ferramentas poderosas.${toolsInstructions}`);
     if (userSystemPrompt) systemContent.push(userSystemPrompt);
     if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
     
     const msgs = [{ role: "system", content: systemContent.join('\n\n') }, ...messages];
-    const tools = enableSwarm ? getAvailableTools() : undefined;
+    const tools = enableSwarm ? getAvailableTools(req.user._id) : undefined;
 
     try {
         let resp = await openai.chat.completions.create({
@@ -677,7 +1282,7 @@ Use para encadear ações onde você só precisa do resultado final:
         
         // Processa tool calls se houver
         let iterations = 0;
-        const maxIterations = 5; // Limite de segurança
+        const maxIterations = 10; // Aumentado para permitir mais iterações
         
         while (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxIterations) {
             iterations++;
@@ -685,8 +1290,8 @@ Use para encadear ações onde você só precisa do resultado final:
             // Adiciona a mensagem do assistente com tool_calls
             msgs.push(assistantMessage);
             
-            // Processa as ferramentas
-            const toolResults = await processToolCalls(assistantMessage.tool_calls, apiKey, model);
+            // Processa as ferramentas (passa userId para ferramentas customizadas)
+            const toolResults = await processToolCalls(assistantMessage.tool_calls, apiKey, model, req.user._id);
             
             // Adiciona os resultados das ferramentas
             msgs.push(...toolResults);
