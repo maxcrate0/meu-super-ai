@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Cpu, Settings, LogOut, Plus, MessageSquare, Trash2, Edit2, X, Check, 
   Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw, Zap,
@@ -617,7 +619,11 @@ export default function ChatInterface({ user, setUser }) {
                   </span>
                 )}
               </div>
-              <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{m.content}</pre>
+              <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-pink-400 prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-700 prose-a:text-blue-400 prose-strong:text-purple-400">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {m.content}
+                </ReactMarkdown>
+              </div>
             </div>
           ))}
           {loading && (
