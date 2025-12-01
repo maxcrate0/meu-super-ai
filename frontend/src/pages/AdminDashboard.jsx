@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
-  BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu
+  BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
+  Send, Mail
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -24,6 +25,9 @@ export default function AdminDashboard() {
   const [defaultModel, setDefaultModel] = useState('');
   const [showModelModal, setShowModelModal] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [adminMessage, setAdminMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
   
   const token = localStorage.getItem('token');
 
@@ -142,6 +146,48 @@ export default function AdminDashboard() {
       alert('Chat apagado com sucesso!');
     } catch(err) {
       alert('Erro ao apagar chat: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const deleteTool = async (toolId, toolName) => {
+    if (!confirm(`Tem certeza que deseja apagar a ferramenta "${toolName}"?`)) return;
+    try {
+      await axios.delete(API_URL + '/admin/tool/' + toolId, { 
+        headers: { Authorization: 'Bearer ' + token } 
+      });
+      // Recarrega detalhes do usuário
+      if (selectedUser) selectUser(selectedUser);
+      alert('Ferramenta apagada com sucesso!');
+    } catch(err) {
+      alert('Erro ao apagar ferramenta: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const sendAdminMessage = async () => {
+    if (!adminMessage.trim() || !selectedUser) return;
+    setSendingMessage(true);
+    try {
+      await axios.post(API_URL + '/admin/user/' + selectedUser + '/message', 
+        { message: adminMessage },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      alert('Mensagem enviada com sucesso! O usuário verá quando abrir o site.');
+      setAdminMessage('');
+      setShowMessageModal(false);
+    } catch(err) {
+      alert('Erro ao enviar: ' + (err.response?.data?.error || err.message));
+    }
+    setSendingMessage(false);
+  };
+
+  const clearAdminMessage = async (userId) => {
+    try {
+      await axios.delete(API_URL + '/admin/user/' + userId + '/message', { 
+        headers: { Authorization: 'Bearer ' + token } 
+      });
+      alert('Mensagem limpa!');
+    } catch(err) {
+      alert('Erro: ' + err.message);
     }
   };
 
@@ -323,6 +369,12 @@ export default function AdminDashboard() {
                   <Trash2 size={18}/> Excluir Usuário
                 </button>
               )}
+              <button 
+                onClick={() => setShowMessageModal(true)}
+                className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg flex items-center gap-2 transition"
+              >
+                <Mail size={18}/> Enviar Mensagem
+              </button>
             </div>
 
             {/* User Stats */}
@@ -392,7 +444,16 @@ export default function AdminDashboard() {
                 <div className="grid gap-4">
                   {userDetails.tools.map(t => (
                     <div key={t._id} className="bg-gray-800 p-4 rounded-lg">
-                      <div className="font-bold text-blue-400">{t.name}</div>
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold text-blue-400">{t.name}</div>
+                        <button 
+                          onClick={() => deleteTool(t._id, t.name)}
+                          className="text-red-400 hover:text-red-300 p-2"
+                          title="Apagar ferramenta"
+                        >
+                          <Trash2 size={16}/>
+                        </button>
+                      </div>
                       <p className="text-sm text-gray-400 mt-1">{t.description}</p>
                       <pre className="bg-gray-900 text-green-400 text-xs p-3 mt-3 rounded overflow-auto max-h-32">
                         {t.code}
@@ -560,6 +621,58 @@ export default function AdminDashboard() {
               >
                 {savingModel ? 'Salvando...' : 'Salvar Modelo Padrão'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Enviar Mensagem */}
+      {showMessageModal && userDetails && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <Mail className="text-blue-500"/> Enviar Mensagem
+              </h2>
+              <button onClick={() => setShowMessageModal(false)}>
+                <X size={24}/>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-blue-900/30 border border-blue-600/50 p-4 rounded-lg">
+                <div className="text-sm">
+                  <p className="font-medium text-blue-400">Mensagem para: {userDetails.user.displayName || userDetails.user.username}</p>
+                  <p className="text-blue-200/70 mt-1">
+                    Esta mensagem aparecerá como um alerta quando o usuário abrir o site.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">Mensagem</label>
+                <textarea
+                  className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600 min-h-[120px] resize-none"
+                  placeholder="Digite a mensagem para o usuário..."
+                  value={adminMessage}
+                  onChange={e => setAdminMessage(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => clearAdminMessage(userDetails.user._id)}
+                  className="flex-1 bg-gray-600 hover:bg-gray-500 p-3 rounded-lg transition"
+                >
+                  Limpar Anterior
+                </button>
+                <button 
+                  onClick={sendAdminMessage}
+                  disabled={sendingMessage || !adminMessage.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 p-3 rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  {sendingMessage ? 'Enviando...' : <><Send size={18}/> Enviar</>}
+                </button>
+              </div>
             </div>
           </div>
         </div>

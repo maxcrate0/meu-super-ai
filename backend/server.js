@@ -1386,6 +1386,95 @@ app.delete('/api/admin/chat/:id', auth, adminOnly, async (req, res) => {
     res.json({ success: true });
 });
 
+// ============ ADMIN - FERRAMENTAS ============
+
+// Deletar ferramenta de qualquer usuário
+app.delete('/api/admin/tool/:id', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const tool = await CustomTool.findByIdAndDelete(req.params.id);
+        if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
+        res.json({ success: true, message: `Ferramenta "${tool.name}" deletada` });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao deletar ferramenta: ' + err.message });
+    }
+});
+
+// ============ ADMIN - MENSAGENS PARA USUÁRIOS ============
+
+// Enviar mensagem para usuário
+app.post('/api/admin/user/:id/message', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { message } = req.body;
+        
+        if (!message || !message.trim()) {
+            return res.status(400).json({ error: 'Mensagem não pode estar vazia' });
+        }
+        
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            {
+                adminMessage: {
+                    content: message.trim(),
+                    sentAt: new Date(),
+                    read: false
+                }
+            },
+            { new: true }
+        );
+        
+        if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+        
+        res.json({ success: true, message: 'Mensagem enviada com sucesso' });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao enviar mensagem: ' + err.message });
+    }
+});
+
+// Limpar mensagem do usuário (admin)
+app.delete('/api/admin/user/:id/message', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        await User.findByIdAndUpdate(req.params.id, {
+            adminMessage: { content: '', read: true }
+        });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao limpar mensagem: ' + err.message });
+    }
+});
+
+// Endpoint para usuário verificar se tem mensagem do admin
+app.get('/api/user/admin-message', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (user.adminMessage?.content && !user.adminMessage?.read) {
+            res.json({
+                hasMessage: true,
+                message: user.adminMessage.content,
+                sentAt: user.adminMessage.sentAt
+            });
+        } else {
+            res.json({ hasMessage: false });
+        }
+    } catch (err) {
+        res.json({ hasMessage: false });
+    }
+});
+
+// Endpoint para usuário marcar mensagem como lida
+app.post('/api/user/admin-message/read', auth, async (req, res) => {
+    try {
+        await User.findByIdAndUpdate(req.user._id, {
+            'adminMessage.read': true
+        });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao marcar como lida' });
+    }
+});
+
 // ============ ADMIN - CONFIGURAÇÕES GLOBAIS ============
 
 app.get('/api/admin/config', auth, adminOnly, async (req, res) => {

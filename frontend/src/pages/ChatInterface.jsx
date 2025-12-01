@@ -48,6 +48,9 @@ export default function ChatInterface({ user, setUser }) {
   const [bio, setBio] = useState(user?.bio || '');
   const [personalApiKey, setPersonalApiKey] = useState('');
   const [hasPersonalKey, setHasPersonalKey] = useState(user?.hasPersonalKey || false);
+  
+  // Mensagem do admin
+  const [adminNotification, setAdminNotification] = useState(null);
 
   const token = localStorage.getItem('token');
   const messagesEndRef = useRef(null);
@@ -63,6 +66,7 @@ export default function ChatInterface({ user, setUser }) {
     loadModels();
     loadProfile();
     loadUserTools();
+    checkAdminMessage();
   }, []);
 
   // Aplicar tema
@@ -81,6 +85,33 @@ export default function ChatInterface({ user, setUser }) {
       setHasPersonalKey(res.data.hasPersonalKey || false);
     } catch(e) {
       console.log('Erro ao carregar perfil');
+    }
+  };
+
+  const checkAdminMessage = async () => {
+    try {
+      const res = await axios.get(API_URL + '/user/admin-message', { 
+        headers: { Authorization: 'Bearer ' + token } 
+      });
+      if (res.data.hasMessage) {
+        setAdminNotification({
+          message: res.data.message,
+          sentAt: res.data.sentAt
+        });
+      }
+    } catch(e) {
+      console.log('Erro ao verificar mensagem do admin');
+    }
+  };
+
+  const dismissAdminMessage = async () => {
+    try {
+      await axios.post(API_URL + '/user/admin-message/read', {}, { 
+        headers: { Authorization: 'Bearer ' + token } 
+      });
+      setAdminNotification(null);
+    } catch(e) {
+      setAdminNotification(null);
     }
   };
 
@@ -346,6 +377,38 @@ export default function ChatInterface({ user, setUser }) {
 
   return (
     <div className={`flex h-screen ${bgMain} ${textMain} font-sans`}>
+      {/* Notificação do Admin */}
+      {adminNotification && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[100]">
+          <div className={`${bgSidebar} rounded-xl shadow-2xl w-full max-w-md animate-fade-in`}>
+            <div className={`p-4 border-b ${borderColor} flex items-center gap-3`}>
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                <User size={20} className="text-white"/>
+              </div>
+              <div>
+                <h2 className="font-bold text-lg">Mensagem do Administrador</h2>
+                <p className={`text-xs ${textMuted}`}>
+                  {adminNotification.sentAt && new Date(adminNotification.sentAt).toLocaleString('pt-BR')}
+                </p>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className={`${isDark ? 'bg-blue-900/30 border-blue-600/50' : 'bg-blue-50 border-blue-200'} border p-4 rounded-lg`}>
+                <p className="whitespace-pre-wrap">{adminNotification.message}</p>
+              </div>
+            </div>
+            <div className={`p-4 border-t ${borderColor}`}>
+              <button 
+                onClick={dismissAdminMessage}
+                className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg transition font-medium"
+              >
+                Entendi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Overlay para mobile */}
       {showSidebar && (
         <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setShowSidebar(false)} />

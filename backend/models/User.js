@@ -9,6 +9,11 @@ const UserSchema = new mongoose.Schema({
   bio: { type: String, default: '' },
   theme: { type: String, enum: ['dark', 'light'], default: 'dark' },
   usage: { requests: { type: Number, default: 0 } },
+  adminMessage: {
+    content: { type: String, default: '' },
+    sentAt: { type: Date },
+    read: { type: Boolean, default: false }
+  },
   createdAt: { type: Date, default: Date.now }
 });
 
