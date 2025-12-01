@@ -151,15 +151,27 @@ app.get('/api/models', async (req, res) => {
     }
 });
 
-// Modelos GPT4Free (lista estática com provedores conhecidos)
+// Modelos GPT4Free (busca do MongoDB ou usa fallback)
 app.get('/api/models/g4f', async (req, res) => {
     const now = Date.now();
     if (g4fModelsCache.data.length > 0 && (now - g4fModelsCache.lastFetch) < MODELS_CACHE_TTL) {
         return res.json(g4fModelsCache.data);
     }
     
-    // Lista de modelos/provedores populares do GPT4Free
-    // Baseado em: https://github.com/xtekky/gpt4free/tree/main/g4f/Provider
+    await connectDB();
+    
+    // Tenta buscar do MongoDB (atualizado pela Azure Function)
+    try {
+        const g4fData = await mongoose.connection.db.collection('g4f_cache').findOne({ _id: 'g4f_data' });
+        if (g4fData && g4fData.models && g4fData.models.length > 0) {
+            g4fModelsCache = { data: g4fData.models, lastFetch: now };
+            return res.json(g4fData.models);
+        }
+    } catch (e) {
+        console.log('G4F cache não encontrado, usando fallback');
+    }
+    
+    // Fallback: Lista estática de modelos populares do GPT4Free
     const g4fModels = [
         // GPT-4 variants
         { id: 'gpt-4', name: 'GPT-4', provider: 'Multiple' },
@@ -190,8 +202,6 @@ app.get('/api/models/g4f', async (req, res) => {
         // Qwen
         { id: 'qwen-2.5-72b', name: 'Qwen 2.5 72B', provider: 'Multiple' },
         { id: 'qwen-2.5-coder-32b', name: 'Qwen 2.5 Coder 32B', provider: 'Multiple' },
-        // Yi
-        { id: 'yi-1.5-34b', name: 'Yi 1.5 34B', provider: 'Multiple' },
         // Outros
         { id: 'blackboxai', name: 'BlackBox AI', provider: 'BlackBox' },
         { id: 'command-r-plus', name: 'Command R+', provider: 'Multiple' },
