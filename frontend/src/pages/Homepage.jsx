@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Cpu, MessageSquare, Terminal, Globe, Wrench, ChevronDown,
-  LogIn, UserPlus, Menu, X, Sparkles, Zap, Shield, Code
+  LogIn, UserPlus, Menu, X, Sparkles, Zap, Shield, Code,
+  Layers, Database, Bot, Infinity
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net';
@@ -12,6 +13,7 @@ export default function Homepage({ user, setUser }) {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [content, setContent] = useState(null);
   const navigate = useNavigate();
+  const toolsTimeoutRef = useRef(null);
 
   // Carregar conteúdo da página
   useEffect(() => {
@@ -22,6 +24,21 @@ export default function Homepage({ user, setUser }) {
       })
       .catch(() => {});
   }, []);
+
+  // Funções para controlar o dropdown com delay
+  const handleToolsEnter = () => {
+    if (toolsTimeoutRef.current) {
+      clearTimeout(toolsTimeoutRef.current);
+      toolsTimeoutRef.current = null;
+    }
+    setToolsOpen(true);
+  };
+
+  const handleToolsLeave = () => {
+    toolsTimeoutRef.current = setTimeout(() => {
+      setToolsOpen(false);
+    }, 150);
+  };
 
   const handleToolClick = (toolPath) => {
     setToolsOpen(false);
@@ -47,7 +64,7 @@ export default function Homepage({ user, setUser }) {
 
   // Conteúdo padrão se não houver customização
   const defaultHero = {
-    title: 'Meu Super AI',
+    title: 'jgspAI',
     subtitle: 'Plataforma de Inteligência Artificial avançada com múltiplas ferramentas para potencializar sua produtividade.',
   };
 
@@ -63,54 +80,54 @@ export default function Homepage({ user, setUser }) {
   const featuresSection = getSection('features');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-indigo-950 to-gray-950 text-white">
       {/* Navbar */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-gray-900/80 backdrop-blur-md border-b border-gray-700">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-gray-950/80 backdrop-blur-md border-b border-indigo-500/20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo e Menu Esquerdo */}
             <div className="flex items-center space-x-8">
               <Link to="/" className="flex items-center space-x-2">
-                <Cpu className="h-8 w-8 text-purple-400" />
-                <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  Meu Super AI
+                <Cpu className="h-8 w-8 text-indigo-400" />
+                <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+                  jgspAI
                 </span>
               </Link>
 
               {/* Menu Desktop */}
               <div className="hidden md:flex items-center space-x-6">
                 {/* Dropdown Ferramentas */}
-                <div className="relative">
+                <div 
+                  className="relative"
+                  onMouseEnter={handleToolsEnter}
+                  onMouseLeave={handleToolsLeave}
+                >
                   <button
-                    onMouseEnter={() => setToolsOpen(true)}
-                    onMouseLeave={() => setToolsOpen(false)}
-                    className="flex items-center space-x-1 text-gray-300 hover:text-white transition-colors"
+                    className="flex items-center space-x-1 text-gray-300 hover:text-white transition-colors py-4"
                   >
                     <span>Ferramentas</span>
                     <ChevronDown className={`h-4 w-4 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
                   </button>
                   
                   {toolsOpen && (
-                    <div
-                      onMouseEnter={() => setToolsOpen(true)}
-                      onMouseLeave={() => setToolsOpen(false)}
-                      className="absolute top-full left-0 mt-2 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-2 animate-fadeIn"
-                    >
-                      {tools.map(tool => (
-                        <button
-                          key={tool.path}
-                          onClick={() => handleToolClick(tool.path)}
-                          className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 transition-colors text-left"
-                        >
-                          <tool.icon className="h-5 w-5 text-purple-400" />
-                          <div>
-                            <p className="font-medium text-white">{tool.name}</p>
-                            <p className="text-sm text-gray-400">{tool.description}</p>
-                          </div>
-                        </button>
-                      ))}
-                      <div className="border-t border-gray-700 mt-2 pt-2 px-4 py-2">
-                        <p className="text-sm text-gray-500 italic">Mais ferramentas em breve...</p>
+                    <div className="absolute top-full left-0 pt-1 w-72">
+                      <div className="bg-gray-900/95 backdrop-blur-md rounded-xl shadow-2xl border border-indigo-500/30 py-2 animate-fadeIn">
+                        {tools.map(tool => (
+                          <button
+                            key={tool.path}
+                            onClick={() => handleToolClick(tool.path)}
+                            className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-indigo-500/20 transition-colors text-left"
+                          >
+                            <tool.icon className="h-5 w-5 text-indigo-400" />
+                            <div>
+                              <p className="font-medium text-white">{tool.name}</p>
+                              <p className="text-sm text-gray-400">{tool.description}</p>
+                            </div>
+                          </button>
+                        ))}
+                        <div className="border-t border-gray-700 mt-2 pt-2 px-4 py-2">
+                          <p className="text-sm text-gray-500 italic">Mais ferramentas em breve...</p>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -130,7 +147,7 @@ export default function Homepage({ user, setUser }) {
                   {user.role === 'admin' && (
                     <Link 
                       to="/admin" 
-                      className="px-3 py-1.5 text-sm bg-yellow-500/20 text-yellow-400 rounded-lg hover:bg-yellow-500/30 transition-colors"
+                      className="px-3 py-1.5 text-sm bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30 transition-colors"
                     >
                       Admin
                     </Link>
@@ -153,7 +170,7 @@ export default function Homepage({ user, setUser }) {
                   </Link>
                   <Link
                     to="/login?register=true"
-                    className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 rounded-lg transition-all"
                   >
                     <UserPlus className="h-4 w-4" />
                     <span>Registrar</span>
@@ -174,7 +191,7 @@ export default function Homepage({ user, setUser }) {
 
         {/* Menu Mobile */}
         {menuOpen && (
-          <div className="md:hidden bg-gray-800 border-t border-gray-700 animate-fadeIn">
+          <div className="md:hidden bg-gray-900/95 backdrop-blur-md border-t border-indigo-500/20 animate-fadeIn">
             <div className="px-4 py-4 space-y-3">
               <div className="border-b border-gray-700 pb-3">
                 <p className="text-sm text-gray-400 mb-2">Ferramentas</p>
@@ -182,9 +199,9 @@ export default function Homepage({ user, setUser }) {
                   <button
                     key={tool.path}
                     onClick={() => { handleToolClick(tool.path); setMenuOpen(false); }}
-                    className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-gray-700 rounded-lg"
+                    className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-indigo-500/20 rounded-lg"
                   >
-                    <tool.icon className="h-5 w-5 text-purple-400" />
+                    <tool.icon className="h-5 w-5 text-indigo-400" />
                     <span>{tool.name}</span>
                   </button>
                 ))}
@@ -193,7 +210,7 @@ export default function Homepage({ user, setUser }) {
               <Link 
                 to="/docs" 
                 onClick={() => setMenuOpen(false)}
-                className="block px-3 py-2 hover:bg-gray-700 rounded-lg"
+                className="block px-3 py-2 hover:bg-indigo-500/20 rounded-lg"
               >
                 Documentação
               </Link>
@@ -206,14 +223,14 @@ export default function Homepage({ user, setUser }) {
                       <Link 
                         to="/admin" 
                         onClick={() => setMenuOpen(false)}
-                        className="block px-3 py-2 mt-2 bg-yellow-500/20 text-yellow-400 rounded-lg"
+                        className="block px-3 py-2 mt-2 bg-amber-500/20 text-amber-400 rounded-lg"
                       >
                         Painel Admin
                       </Link>
                     )}
                     <button 
                       onClick={() => { handleLogout(); setMenuOpen(false); }}
-                      className="w-full text-left px-3 py-2 mt-2 text-red-400 hover:bg-gray-700 rounded-lg"
+                      className="w-full text-left px-3 py-2 mt-2 text-red-400 hover:bg-red-500/20 rounded-lg"
                     >
                       Sair
                     </button>
@@ -224,14 +241,14 @@ export default function Homepage({ user, setUser }) {
                   <Link 
                     to="/login" 
                     onClick={() => setMenuOpen(false)}
-                    className="block px-3 py-2 hover:bg-gray-700 rounded-lg"
+                    className="block px-3 py-2 hover:bg-indigo-500/20 rounded-lg"
                   >
                     Entrar
                   </Link>
                   <Link 
                     to="/login?register=true" 
                     onClick={() => setMenuOpen(false)}
-                    className="block px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-center"
+                    className="block px-3 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 rounded-lg text-center"
                   >
                     Registrar
                   </Link>
@@ -247,12 +264,12 @@ export default function Homepage({ user, setUser }) {
         <div className="max-w-5xl mx-auto text-center">
           <div className="flex justify-center mb-6">
             <div className="relative">
-              <div className="absolute inset-0 blur-3xl bg-purple-500/30 rounded-full"></div>
-              <Sparkles className="relative h-20 w-20 text-purple-400 animate-pulse" />
+              <div className="absolute inset-0 blur-3xl bg-indigo-500/30 rounded-full"></div>
+              <Sparkles className="relative h-20 w-20 text-indigo-400 animate-pulse" />
             </div>
           </div>
           
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-white via-purple-200 to-pink-200 bg-clip-text text-transparent">
+          <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-white via-indigo-200 to-cyan-200 bg-clip-text text-transparent">
             {heroSection?.title || defaultHero.title}
           </h1>
           
@@ -263,7 +280,7 @@ export default function Homepage({ user, setUser }) {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               onClick={() => handleToolClick('/chat')}
-              className="group flex items-center space-x-2 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 rounded-xl text-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-purple-500/25"
+              className="group flex items-center space-x-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 rounded-xl text-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-indigo-500/25"
             >
               <MessageSquare className="h-5 w-5" />
               <span>Começar a Usar</span>
@@ -272,7 +289,7 @@ export default function Homepage({ user, setUser }) {
             
             <Link
               to="/docs"
-              className="flex items-center space-x-2 px-8 py-4 border border-gray-600 hover:border-gray-500 rounded-xl text-lg transition-colors"
+              className="flex items-center space-x-2 px-8 py-4 border border-indigo-500/50 hover:border-indigo-400 rounded-xl text-lg transition-colors hover:bg-indigo-500/10"
             >
               <Code className="h-5 w-5" />
               <span>Ver Documentação</span>
@@ -281,8 +298,109 @@ export default function Homepage({ user, setUser }) {
         </div>
       </section>
 
+      {/* All in One Section */}
+      <section className="py-20 px-4 bg-gradient-to-r from-indigo-900/20 to-cyan-900/20">
+        <div className="max-w-5xl mx-auto text-center">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-cyan-500 rounded-2xl flex items-center justify-center">
+              <Layers className="h-8 w-8 text-white" />
+            </div>
+          </div>
+          
+          <h2 className="text-3xl md:text-4xl font-bold mb-4 bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+            Tudo em um só lugar
+          </h2>
+          
+          <p className="text-lg text-gray-300 max-w-2xl mx-auto mb-8">
+            Acesse <strong className="text-white">dezenas de modelos de IA</strong> de diferentes provedores em uma única plataforma. 
+            De GPT a Claude, de Gemini a Llama — todos disponíveis com suporte a <strong className="text-white">OpenRouter</strong> e <strong className="text-cyan-400">GPT4Free</strong>.
+          </p>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto">
+            {['GPT-4', 'Claude', 'Gemini', 'Llama', 'Mistral', 'DeepSeek', 'Qwen', 'E mais...'].map((model, i) => (
+              <div key={i} className="bg-gray-900/50 border border-indigo-500/20 rounded-lg p-3 text-center hover:border-indigo-500/50 transition-colors">
+                <span className="text-sm font-medium text-gray-300">{model}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* GPT4Free Section */}
+      <section className="py-20 px-4">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center">
+                  <Infinity className="h-6 w-6 text-white" />
+                </div>
+                <span className="text-sm font-medium text-emerald-400 uppercase tracking-wide">Novo</span>
+              </div>
+              
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                Integração com <span className="text-emerald-400">GPT4Free</span>
+              </h2>
+              
+              <p className="text-gray-300 mb-6">
+                Além dos modelos do OpenRouter, agora você também tem acesso aos provedores do <strong className="text-white">GPT4Free</strong> — 
+                uma coleção de APIs gratuitas que oferecem acesso a modelos como GPT-4, Claude e outros sem necessidade de API keys.
+              </p>
+              
+              <ul className="space-y-3">
+                {[
+                  'Dois provedores em uma interface',
+                  'Pesquise modelos facilmente',
+                  'Alterne entre OpenRouter e G4F',
+                  'Sem necessidade de configuração extra'
+                ].map((item, i) => (
+                  <li key={i} className="flex items-center gap-3">
+                    <div className="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                      <Zap className="h-3 w-3 text-emerald-400" />
+                    </div>
+                    <span className="text-gray-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            
+            <div className="bg-gray-900/50 border border-emerald-500/20 rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Bot className="h-6 w-6 text-emerald-400" />
+                <span className="font-semibold">Seletor de Modelos</span>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <button className="flex-1 px-4 py-2 bg-indigo-600 rounded-lg text-sm font-medium">OpenRouter</button>
+                  <button className="flex-1 px-4 py-2 bg-gray-800 rounded-lg text-sm font-medium text-gray-400">GPT4Free</button>
+                </div>
+                
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar modelos..."
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                    readOnly
+                  />
+                </div>
+                
+                <div className="space-y-2 max-h-48 overflow-hidden">
+                  {['google/gemini-2.0-flash', 'meta-llama/llama-3.3-70b', 'deepseek/deepseek-chat', 'mistral/mistral-large'].map((m, i) => (
+                    <div key={i} className="flex items-center gap-3 p-2 bg-gray-800/50 rounded-lg">
+                      <Database className="h-4 w-4 text-indigo-400" />
+                      <span className="text-sm text-gray-300 truncate">{m}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
-      <section className="py-20 px-4 bg-gray-900/50">
+      <section className="py-20 px-4 bg-gray-950/50">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
             {featuresSection?.title || 'Recursos Poderosos'}
@@ -292,10 +410,10 @@ export default function Homepage({ user, setUser }) {
             {defaultFeatures.map((feature, i) => (
               <div 
                 key={i}
-                className="group p-6 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 hover:border-purple-500/50 rounded-xl transition-all duration-300"
+                className="group p-6 bg-gray-900/50 hover:bg-gray-900 border border-indigo-500/20 hover:border-indigo-500/50 rounded-xl transition-all duration-300"
               >
-                <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center mb-4 group-hover:bg-purple-500/30 transition-colors">
-                  <feature.icon className="h-6 w-6 text-purple-400" />
+                <div className="w-12 h-12 bg-indigo-500/20 rounded-lg flex items-center justify-center mb-4 group-hover:bg-indigo-500/30 transition-colors">
+                  <feature.icon className="h-6 w-6 text-indigo-400" />
                 </div>
                 <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
                 <p className="text-gray-400">{feature.desc}</p>
@@ -308,7 +426,7 @@ export default function Homepage({ user, setUser }) {
       {/* Security Section */}
       <section className="py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
-          <Shield className="h-16 w-16 text-green-400 mx-auto mb-6" />
+          <Shield className="h-16 w-16 text-emerald-400 mx-auto mb-6" />
           <h2 className="text-3xl font-bold mb-4">Segurança em Primeiro Lugar</h2>
           <p className="text-gray-300 text-lg">
             Seus dados são protegidos. Comandos perigosos são bloqueados automaticamente. 
@@ -318,7 +436,7 @@ export default function Homepage({ user, setUser }) {
       </section>
 
       {/* Coming Soon Section */}
-      <section className="py-20 px-4 bg-gradient-to-r from-purple-900/30 to-pink-900/30">
+      <section className="py-20 px-4 bg-gradient-to-r from-indigo-900/30 to-cyan-900/30">
         <div className="max-w-4xl mx-auto text-center">
           <p className="text-2xl md:text-3xl font-light text-gray-300 italic">
             ✨ Mais conteúdo em breve ✨
@@ -327,11 +445,11 @@ export default function Homepage({ user, setUser }) {
       </section>
 
       {/* Footer */}
-      <footer className="py-8 px-4 border-t border-gray-800">
+      <footer className="py-8 px-4 border-t border-indigo-500/20">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center space-x-2 mb-4 md:mb-0">
-            <Cpu className="h-6 w-6 text-purple-400" />
-            <span className="font-semibold">Meu Super AI</span>
+            <Cpu className="h-6 w-6 text-indigo-400" />
+            <span className="font-semibold">jgspAI</span>
           </div>
           <div className="flex items-center space-x-6 text-gray-400 text-sm">
             <Link to="/docs" className="hover:text-white transition-colors">Documentação</Link>

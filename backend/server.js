@@ -59,6 +59,7 @@ const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
 
 // Cache para modelos (atualiza a cada 5 minutos)
 let modelsCache = { data: [], lastFetch: 0 };
+let g4fModelsCache = { data: [], lastFetch: 0 };
 const MODELS_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 // Conexão MongoDB
@@ -148,6 +149,56 @@ app.get('/api/models', async (req, res) => {
         // Retorna cache antigo se existir, senão lista vazia
         res.json(modelsCache.data.length > 0 ? modelsCache.data : []);
     }
+});
+
+// Modelos GPT4Free (lista estática com provedores conhecidos)
+app.get('/api/models/g4f', async (req, res) => {
+    const now = Date.now();
+    if (g4fModelsCache.data.length > 0 && (now - g4fModelsCache.lastFetch) < MODELS_CACHE_TTL) {
+        return res.json(g4fModelsCache.data);
+    }
+    
+    // Lista de modelos/provedores populares do GPT4Free
+    // Baseado em: https://github.com/xtekky/gpt4free/tree/main/g4f/Provider
+    const g4fModels = [
+        // GPT-4 variants
+        { id: 'gpt-4', name: 'GPT-4', provider: 'Multiple' },
+        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'Multiple' },
+        { id: 'gpt-4o', name: 'GPT-4o', provider: 'Multiple' },
+        { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'Multiple' },
+        // GPT-3.5
+        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'Multiple' },
+        // Claude variants
+        { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Multiple' },
+        { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'Multiple' },
+        { id: 'claude-3-haiku', name: 'Claude 3 Haiku', provider: 'Multiple' },
+        { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Multiple' },
+        // Gemini
+        { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Multiple' },
+        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'Multiple' },
+        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'Multiple' },
+        // Llama
+        { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', provider: 'Multiple' },
+        { id: 'llama-3.1-405b', name: 'Llama 3.1 405B', provider: 'Multiple' },
+        { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', provider: 'Multiple' },
+        // Mistral
+        { id: 'mistral-large', name: 'Mistral Large', provider: 'Multiple' },
+        { id: 'mixtral-8x7b', name: 'Mixtral 8x7B', provider: 'Multiple' },
+        // DeepSeek
+        { id: 'deepseek-chat', name: 'DeepSeek Chat', provider: 'Multiple' },
+        { id: 'deepseek-coder', name: 'DeepSeek Coder', provider: 'Multiple' },
+        // Qwen
+        { id: 'qwen-2.5-72b', name: 'Qwen 2.5 72B', provider: 'Multiple' },
+        { id: 'qwen-2.5-coder-32b', name: 'Qwen 2.5 Coder 32B', provider: 'Multiple' },
+        // Yi
+        { id: 'yi-1.5-34b', name: 'Yi 1.5 34B', provider: 'Multiple' },
+        // Outros
+        { id: 'blackboxai', name: 'BlackBox AI', provider: 'BlackBox' },
+        { id: 'command-r-plus', name: 'Command R+', provider: 'Multiple' },
+    ];
+    
+    g4fModelsCache = { data: g4fModels, lastFetch: now };
+    res.json(g4fModels);
 });
 
 // ============ AUTH ============
@@ -401,8 +452,83 @@ app.delete('/api/chats/:id', auth, async (req, res) => {
 
 // ============ CHAT COM IA ============
 
+// Helper para chamada GPT4Free
+const callG4F = async (model, messages) => {
+    // G4F usa uma API similar à OpenAI
+    // Você pode configurar seu próprio servidor g4f ou usar provedores públicos
+    // Por padrão, tentamos usar um provedor público
+    const g4fEndpoints = [
+        'https://api.airforce/chat/completions',
+        'https://api.freegpt4.ddns.net/v1/chat/completions',
+    ];
+    
+    for (const endpoint of g4fEndpoints) {
+        try {
+            const response = await axios.post(endpoint, {
+                model: model,
+                messages: messages,
+                stream: false
+            }, { 
+                timeout: 60000,
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.data?.choices?.[0]?.message) {
+                return response.data.choices[0].message;
+            }
+        } catch (e) {
+            console.log(`G4F endpoint ${endpoint} falhou:`, e.message);
+            continue;
+        }
+    }
+    
+    throw new Error('Todos os provedores GPT4Free falharam. Tente novamente ou use OpenRouter.');
+};
+
 app.post('/api/chat', auth, async (req, res) => {
-    const { chatId, messages, model, userSystemPrompt } = req.body;
+    const { chatId, messages, model, userSystemPrompt, provider } = req.body;
+    
+    // Se usar GPT4Free
+    if (provider === 'g4f') {
+        // Obtém system prompt global
+        const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
+        const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+        
+        const systemContent = [];
+        if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
+        if (userSystemPrompt) systemContent.push(userSystemPrompt);
+        if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
+        
+        const msgs = systemContent.length > 0 
+            ? [{ role: "system", content: systemContent.join('\n\n') }, ...messages]
+            : [...messages];
+        
+        try {
+            const msg = await callG4F(model, msgs);
+            res.json(msg);
+            
+            // Incrementa uso e salva histórico
+            User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
+            
+            if (chatId) {
+                Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
+                    if (chat) {
+                        chat.messages.push(messages[messages.length - 1]);
+                        chat.messages.push(msg);
+                        chat.model = model;
+                        chat.updatedAt = Date.now();
+                        await chat.save();
+                    }
+                }).catch(err => console.error('Erro ao salvar histórico:', err));
+            }
+            return;
+        } catch (e) {
+            console.error('Erro G4F:', e.message);
+            return res.status(500).json({ error: e.message });
+        }
+    }
+    
+    // OpenRouter (padrão)
     const apiKey = await getApiKey(req.user);
     
     if (!apiKey) {
@@ -414,7 +540,7 @@ app.post('/api/chat', auth, async (req, res) => {
         apiKey,
         defaultHeaders: {
             "HTTP-Referer": "https://meu-super-ai.vercel.app",
-            "X-Title": "Meu Super AI"
+            "X-Title": "jgspAI"
         }
     });
 
@@ -720,7 +846,7 @@ const executeSwarmAgent = async (apiKey, task, model) => {
         apiKey,
         defaultHeaders: {
             "HTTP-Referer": "https://meu-super-ai.vercel.app",
-            "X-Title": "Meu Super AI - Swarm Agent"
+            "X-Title": "jgspAI - Swarm Agent"
         }
     });
 
@@ -1202,7 +1328,49 @@ app.post('/api/swarm', auth, async (req, res) => {
 
 // Endpoint de chat com suporte a ferramentas Swarm
 app.post('/api/chat/tools', auth, async (req, res) => {
-    const { chatId, messages, model, userSystemPrompt, enableSwarm = true } = req.body;
+    const { chatId, messages, model, userSystemPrompt, enableSwarm = true, provider } = req.body;
+    
+    // Se usar GPT4Free (sem suporte a ferramentas, redireciona para chat simples)
+    if (provider === 'g4f') {
+        // G4F não suporta function calling, faz chat simples
+        const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
+        const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+        
+        const systemContent = [];
+        if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
+        systemContent.push('Você é um assistente de IA avançado. Nota: As ferramentas avançadas (Swarm, bash, web) não estão disponíveis no modo GPT4Free.');
+        if (userSystemPrompt) systemContent.push(userSystemPrompt);
+        if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
+        
+        const msgs = systemContent.length > 0 
+            ? [{ role: "system", content: systemContent.join('\n\n') }, ...messages]
+            : [...messages];
+        
+        try {
+            const msg = await callG4F(model, msgs);
+            res.json({ content: msg.content, provider: 'g4f' });
+            
+            User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
+            
+            if (chatId) {
+                Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
+                    if (chat) {
+                        chat.messages.push(messages[messages.length - 1]);
+                        chat.messages.push(msg);
+                        chat.model = model;
+                        chat.updatedAt = Date.now();
+                        await chat.save();
+                    }
+                }).catch(err => console.error('Erro ao salvar histórico:', err));
+            }
+            return;
+        } catch (e) {
+            console.error('Erro G4F:', e.message);
+            return res.status(500).json({ error: e.message });
+        }
+    }
+    
+    // OpenRouter com ferramentas
     const apiKey = await getApiKey(req.user);
     
     if (!apiKey) {
@@ -1214,7 +1382,7 @@ app.post('/api/chat/tools', auth, async (req, res) => {
         apiKey,
         defaultHeaders: {
             "HTTP-Referer": "https://meu-super-ai.vercel.app",
-            "X-Title": "Meu Super AI"
+            "X-Title": "jgspAI"
         }
     });
 
@@ -1807,7 +1975,7 @@ function getDefaultSections(page) {
             {
                 id: 'hero',
                 type: 'hero',
-                title: 'Meu Super AI',
+                title: 'jgspAI',
                 subtitle: 'Plataforma de Inteligência Artificial avançada com múltiplas ferramentas para potencializar sua produtividade.',
                 visible: true,
                 order: 0
@@ -1826,7 +1994,7 @@ function getDefaultSections(page) {
                 id: 'intro',
                 type: 'text',
                 title: 'Introdução',
-                content: '# Bem-vindo ao Meu Super AI\n\nDocumentação completa da plataforma.',
+                content: '# Bem-vindo ao jgspAI\n\nDocumentação completa da plataforma.',
                 visible: true,
                 order: 0
             }

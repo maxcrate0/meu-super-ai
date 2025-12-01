@@ -25,9 +25,9 @@ export default function Docs() {
     intro: {
       title: 'Introdução',
       content: `
-# Bem-vindo ao Meu Super AI
+# Bem-vindo ao jgspAI
 
-O **Meu Super AI** é uma plataforma de inteligência artificial que oferece acesso a modelos de IA avançados com funcionalidades extras como execução de código, pesquisa web e ferramentas customizáveis.
+O **jgspAI** é uma plataforma de inteligência artificial que oferece acesso a modelos de IA avançados com funcionalidades extras como execução de código, pesquisa web e ferramentas customizáveis.
 
 ## Começando
 
@@ -242,7 +242,7 @@ DELETE /api/tools/:id - Deletar ferramenta
       if (line.startsWith('# ')) {
         elements.push(<h1 key={i} className="text-3xl font-bold mt-8 mb-4">{line.substring(2)}</h1>);
       } else if (line.startsWith('## ')) {
-        elements.push(<h2 key={i} className="text-2xl font-semibold mt-6 mb-3 text-purple-400">{line.substring(3)}</h2>);
+        elements.push(<h2 key={i} className="text-2xl font-semibold mt-6 mb-3 text-indigo-400">{line.substring(3)}</h2>);
       } else if (line.startsWith('### ')) {
         elements.push(<h3 key={i} className="text-xl font-medium mt-4 mb-2">{line.substring(4)}</h3>);
       } else if (line.startsWith('- ')) {
@@ -253,7 +253,7 @@ DELETE /api/tools/:id - Deletar ferramenta
         );
       } else if (line.startsWith('> ')) {
         elements.push(
-          <blockquote key={i} className="border-l-4 border-purple-500 pl-4 my-2 text-gray-400 italic">
+          <blockquote key={i} className="border-l-4 border-indigo-500 pl-4 my-2 text-gray-400 italic">
             {line.substring(2)}
           </blockquote>
         );
@@ -277,23 +277,23 @@ DELETE /api/tools/:id - Deletar ferramenta
         return <strong key={i} className="text-white">{part.slice(2, -2)}</strong>;
       }
       if (part.startsWith('`') && part.endsWith('`')) {
-        return <code key={i} className="bg-gray-800 px-1.5 py-0.5 rounded text-purple-400">{part.slice(1, -1)}</code>;
+        return <code key={i} className="bg-gray-800 px-1.5 py-0.5 rounded text-indigo-400">{part.slice(1, -1)}</code>;
       }
       return part;
     });
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-indigo-950 to-gray-950 text-white flex">
       {/* Sidebar */}
-      <aside className="w-64 bg-gray-800 border-r border-gray-700 fixed h-full overflow-y-auto">
-        <div className="p-4 border-b border-gray-700">
+      <aside className="w-64 bg-gray-900/80 backdrop-blur-md border-r border-indigo-500/20 fixed h-full overflow-y-auto">
+        <div className="p-4 border-b border-indigo-500/20">
           <Link to="/" className="flex items-center space-x-2 text-gray-300 hover:text-white mb-4">
             <ArrowLeft className="h-4 w-4" />
             <span>Voltar</span>
           </Link>
           <div className="flex items-center space-x-2">
-            <Cpu className="h-6 w-6 text-purple-400" />
+            <Cpu className="h-6 w-6 text-indigo-400" />
             <span className="font-bold">Documentação</span>
           </div>
         </div>
@@ -306,7 +306,7 @@ DELETE /api/tools/:id - Deletar ferramenta
               placeholder="Buscar..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm focus:outline-none focus:border-purple-500"
+              className="w-full pl-10 pr-4 py-2 bg-gray-800 border border-indigo-500/20 rounded-lg text-sm focus:outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -317,8 +317,8 @@ DELETE /api/tools/:id - Deletar ferramenta
                 onClick={() => setActiveSection(section.id)}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors text-left ${
                   activeSection === section.id 
-                    ? 'bg-purple-600 text-white' 
-                    : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+                    ? 'bg-indigo-600 text-white' 
+                    : 'text-gray-400 hover:bg-indigo-500/20 hover:text-white'
                 }`}
               >
                 <section.icon className="h-4 w-4" />
@@ -338,7 +338,7 @@ DELETE /api/tools/:id - Deletar ferramenta
             <ChevronRight className="h-4 w-4" />
             <span>Docs</span>
             <ChevronRight className="h-4 w-4" />
-            <span className="text-purple-400">{sections.find(s => s.id === activeSection)?.title}</span>
+            <span className="text-indigo-400">{sections.find(s => s.id === activeSection)?.title}</span>
           </div>
 
           {/* Content */}
@@ -347,7 +347,7 @@ DELETE /api/tools/:id - Deletar ferramenta
           </article>
 
           {/* Navigation */}
-          <div className="flex justify-between mt-12 pt-8 border-t border-gray-800">
+          <div className="flex justify-between mt-12 pt-8 border-t border-indigo-500/20">
             {sections.findIndex(s => s.id === activeSection) > 0 && (
               <button
                 onClick={() => setActiveSection(sections[sections.findIndex(s => s.id === activeSection) - 1].id)}

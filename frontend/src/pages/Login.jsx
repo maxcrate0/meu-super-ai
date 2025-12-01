@@ -54,7 +54,7 @@ export default function Login({ setUser }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-950 via-indigo-950 to-gray-950 text-white p-4">
       <div className="w-full max-w-md">
         {/* Link para voltar */}
         <Link to="/" className="inline-flex items-center space-x-2 text-gray-400 hover:text-white mb-6 transition-colors">
@@ -63,13 +63,13 @@ export default function Login({ setUser }) {
         </Link>
 
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-            Meu Super AI
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+            jgspAI
           </h1>
           <p className="text-gray-400 mt-2">Chat com modelos de IA gratuitos</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-gray-800/50 backdrop-blur p-8 rounded-2xl border border-gray-700 shadow-xl">
+        <form onSubmit={handleSubmit} className="bg-gray-900/50 backdrop-blur p-8 rounded-2xl border border-indigo-500/20 shadow-xl">
           <h2 className="text-2xl font-bold text-center mb-6">
             {isRegister ? 'Criar Conta' : 'Entrar'}
           </h2>
@@ -90,7 +90,7 @@ export default function Login({ setUser }) {
               <div className="relative">
                 <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"/>
                 <input
-                  className="w-full bg-gray-900 p-3 pl-10 rounded-lg border border-gray-600 focus:border-blue-500 outline-none transition"
+                  className="w-full bg-gray-900 p-3 pl-10 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none transition"
                   placeholder="Digite seu usuário"
                   value={username}
                   onChange={e => setUsername(e.target.value)}
@@ -104,7 +104,7 @@ export default function Login({ setUser }) {
               <div className="relative">
                 <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"/>
                 <input
-                  className="w-full bg-gray-900 p-3 pl-10 rounded-lg border border-gray-600 focus:border-blue-500 outline-none transition"
+                  className="w-full bg-gray-900 p-3 pl-10 rounded-lg border border-gray-600 focus:border-indigo-500 outline-none transition"
                   type="password"
                   placeholder="Digite sua senha"
                   value={password}
@@ -118,7 +118,7 @@ export default function Login({ setUser }) {
           <button 
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-bold mt-6 transition flex items-center justify-center gap-2"
+            className="w-full bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-bold mt-6 transition flex items-center justify-center gap-2"
           >
             {loading && <Loader2 size={18} className="animate-spin"/>}
             {isRegister ? 'CRIAR CONTA' : 'ENTRAR'}
@@ -133,7 +133,7 @@ export default function Login({ setUser }) {
         </form>
 
         <p className="text-center text-xs text-gray-500 mt-6">
-          Powered by OpenRouter • Modelos gratuitos de IA
+          Powered by OpenRouter & GPT4Free • Modelos gratuitos de IA
         </p>
       </div>
     </div>

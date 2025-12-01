@@ -3,7 +3,8 @@ import axios from 'axios';
 import { 
   Cpu, Settings, LogOut, Plus, MessageSquare, Trash2, Edit2, X, Check, 
   Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw, Zap,
-  Paperclip, Image, File, Wrench, Code, Terminal, Globe, ChevronDown
+  Paperclip, Image, File, Wrench, Code, Terminal, Globe, ChevronDown,
+  Search, Database, Layers
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -31,8 +32,11 @@ export default function ChatInterface({ user, setUser }) {
   
   // Modelos
   const [models, setModels] = useState([]);
+  const [g4fModels, setG4fModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-exp:free");
+  const [selectedProvider, setSelectedProvider] = useState("openrouter"); // "openrouter" ou "g4f"
+  const [modelSearch, setModelSearch] = useState("");
   const [userSystemPrompt, setUserSystemPrompt] = useState("");
   
   // UI States
@@ -169,9 +173,10 @@ export default function ChatInterface({ user, setUser }) {
   const loadModels = async () => {
     setModelsLoading(true);
     try {
-      // Carrega modelos e modelo padrão em paralelo
-      const [modelsRes, defaultModelRes] = await Promise.all([
+      // Carrega modelos OpenRouter e G4F em paralelo
+      const [modelsRes, g4fModelsRes, defaultModelRes] = await Promise.all([
         axios.get(API_URL + '/models'),
+        axios.get(API_URL + '/models/g4f').catch(() => ({ data: [] })),
         axios.get(API_URL + '/config/default-model').catch(() => ({ data: {} }))
       ]);
       
@@ -186,12 +191,22 @@ export default function ChatInterface({ user, setUser }) {
           setSelectedModel(modelsRes.data[0].id);
         }
       }
+      
+      // Carrega modelos G4F
+      if (g4fModelsRes.data && g4fModelsRes.data.length > 0) {
+        setG4fModels(g4fModelsRes.data);
+      }
     } catch(e) {
       // Fallback
       setModels([
         {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
         {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
         {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3"}
+      ]);
+      setG4fModels([
+        {id:"gpt-4", name:"GPT-4", provider:"g4f"},
+        {id:"gpt-3.5-turbo", name:"GPT-3.5 Turbo", provider:"g4f"},
+        {id:"claude-3-opus", name:"Claude 3 Opus", provider:"g4f"}
       ]);
     }
     setModelsLoading(false);
@@ -332,7 +347,8 @@ export default function ChatInterface({ user, setUser }) {
       const payload = { 
         chatId: currentChatId, 
         messages: newMsgs.map(m => ({ role: m.role, content: m.content })), 
-        model: selectedModel, 
+        model: selectedModel,
+        provider: selectedProvider,
         userSystemPrompt,
         enableSwarm: swarmEnabled
       };
@@ -345,6 +361,7 @@ export default function ChatInterface({ user, setUser }) {
       const reply = {
         role: 'assistant',
         content: res.data.content,
+        provider: selectedProvider,
         ...(res.data.swarm_used && { swarm_used: true, swarm_iterations: res.data.swarm_iterations })
       };
 
@@ -503,7 +520,7 @@ export default function ChatInterface({ user, setUser }) {
           <button onClick={() => setShowSidebar(true)} className="p-2">
             <Menu size={24}/>
           </button>
-          <span className="font-bold">Meu Super AI</span>
+          <span className="font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">jgspAI</span>
           <button onClick={() => setShowChatConfig(true)} className="p-2">
             <Settings size={24}/>
           </button>
@@ -513,7 +530,16 @@ export default function ChatInterface({ user, setUser }) {
         <div className={`hidden md:flex ${bgCard} ${borderColor} border-b p-3 justify-between items-center`}>
           <div className="flex items-center gap-4">
             <span className={textMuted}>
-              Modelo: <span className={textMain}>{models.find(m => m.id === selectedModel)?.name || selectedModel}</span>
+              <span className={`text-xs uppercase ${selectedProvider === 'g4f' ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                {selectedProvider === 'g4f' ? 'GPT4Free' : 'OpenRouter'}
+              </span>
+              {' • '}
+              <span className={textMain}>
+                {selectedProvider === 'openrouter' 
+                  ? models.find(m => m.id === selectedModel)?.name || selectedModel
+                  : g4fModels.find(m => m.id === selectedModel)?.name || selectedModel
+                }
+              </span>
             </span>
             {swarmEnabled && (
               <span className="text-purple-400 font-bold flex items-center gap-1" title="A IA pode usar agentes paralelos para tarefas complexas">
@@ -521,7 +547,7 @@ export default function ChatInterface({ user, setUser }) {
               </span>
             )}
           </div>
-          <button onClick={() => setShowChatConfig(true)} className={`flex items-center gap-2 ${textMuted} hover:text-blue-400 transition`}>
+          <button onClick={() => setShowChatConfig(true)} className={`flex items-center gap-2 ${textMuted} hover:text-indigo-400 transition`}>
             <Settings size={16}/> Config Chat
           </button>
         </div>
@@ -716,24 +742,98 @@ export default function ChatInterface({ user, setUser }) {
               </button>
             </div>
             <div className="p-6 space-y-6">
+              {/* Seletor de Provider */}
               <div>
-                <label className={`text-sm ${textMuted} block mb-2`}>Modelo de IA</label>
+                <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
+                  <Layers size={16}/> Provedor de IA
+                </label>
                 <div className="flex gap-2">
-                  <select 
-                    className={`flex-1 ${bgInput} p-3 rounded-lg ${borderColor} border`}
-                    value={selectedModel}
-                    onChange={e => setSelectedModel(e.target.value)}
+                  <button 
+                    onClick={() => {
+                      setSelectedProvider('openrouter');
+                      if (models.length > 0) setSelectedModel(models[0].id);
+                    }}
+                    className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
+                      selectedProvider === 'openrouter' ? 'bg-indigo-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
+                    }`}
                   >
-                    {models.map(m => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
-                    ))}
-                  </select>
-                  <button onClick={loadModels} className={`p-3 ${bgInput} rounded-lg ${borderColor} border`} title="Atualizar modelos">
-                    <RefreshCw size={18} className={modelsLoading ? 'animate-spin' : ''}/>
+                    <Database size={18}/> OpenRouter
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setSelectedProvider('g4f');
+                      if (g4fModels.length > 0) setSelectedModel(g4fModels[0].id);
+                    }}
+                    className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
+                      selectedProvider === 'g4f' ? 'bg-emerald-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
+                    }`}
+                  >
+                    <Zap size={18}/> GPT4Free
                   </button>
                 </div>
-                <p className={`text-xs ${textMuted} mt-1`}>{models.length} modelos gratuitos disponíveis</p>
               </div>
+
+              {/* Seletor de Modelo com Pesquisa */}
+              <div>
+                <label className={`text-sm ${textMuted} block mb-2`}>Modelo de IA</label>
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500"/>
+                  <input
+                    type="text"
+                    placeholder="Pesquisar modelos..."
+                    value={modelSearch}
+                    onChange={e => setModelSearch(e.target.value)}
+                    className={`w-full pl-10 pr-4 py-2 ${bgInput} ${borderColor} border rounded-lg text-sm focus:outline-none focus:border-indigo-500`}
+                  />
+                </div>
+                <div className={`${bgInput} ${borderColor} border rounded-lg max-h-48 overflow-y-auto`}>
+                  {selectedProvider === 'openrouter' ? (
+                    models
+                      .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+                      .map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => setSelectedModel(m.id)}
+                          className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
+                            selectedModel === m.id 
+                              ? 'bg-indigo-600 text-white' 
+                              : 'hover:bg-indigo-500/20'
+                          }`}
+                        >
+                          <Database size={14} className={selectedModel === m.id ? 'text-white' : 'text-indigo-400'}/>
+                          <span className="truncate">{m.name}</span>
+                        </button>
+                      ))
+                  ) : (
+                    g4fModels
+                      .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+                      .map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => setSelectedModel(m.id)}
+                          className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
+                            selectedModel === m.id 
+                              ? 'bg-emerald-600 text-white' 
+                              : 'hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          <Zap size={14} className={selectedModel === m.id ? 'text-white' : 'text-emerald-400'}/>
+                          <span className="truncate">{m.name}</span>
+                          {m.provider && <span className={`text-xs ${selectedModel === m.id ? 'text-emerald-200' : 'text-gray-500'}`}>({m.provider})</span>}
+                        </button>
+                      ))
+                  )}
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                  <p className={`text-xs ${textMuted}`}>
+                    {selectedProvider === 'openrouter' ? models.length : g4fModels.length} modelos disponíveis
+                  </p>
+                  <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title="Atualizar modelos">
+                    <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className={`text-sm ${textMuted} block mb-2`}>System Prompt</label>
                 <textarea
@@ -745,7 +845,7 @@ export default function ChatInterface({ user, setUser }) {
               </div>
             </div>
             <div className={`p-4 ${borderColor} border-t`}>
-              <button onClick={() => setShowChatConfig(false)} className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-medium transition">
+              <button onClick={() => setShowChatConfig(false)} className="w-full bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 p-3 rounded-lg font-medium transition">
                 Aplicar
               </button>
             </div>
