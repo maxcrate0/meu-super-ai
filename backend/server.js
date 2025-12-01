@@ -561,6 +561,59 @@ const callG4F = async (model, messages, preferredProvider = null) => {
     throw new Error(`Todos os provedores GPT4Free falharam: ${errors.join('; ')}`);
 };
 
+// Helper para chamada GPT4Free COM SUPORTE A TOOLS
+const callG4FWithTools = async (model, messages, tools, preferredProvider = null) => {
+    const { createG4FClient: createClient } = await loadG4F();
+    
+    // Extrai o provedor do modelo se estiver no formato "provider/model"
+    let provider = preferredProvider;
+    let modelName = model;
+    
+    if (model.includes('/')) {
+        const parts = model.split('/');
+        provider = parts[0];
+        modelName = parts.slice(1).join('/');
+    }
+    
+    // Lista de provedores que podem suportar tools (baseado na documentação do usuário)
+    const toolSupportedProviders = provider 
+        ? [provider]
+        : ['pollinations-ai', 'default', 'deep-infra', 'hugging-face'];
+    
+    const errors = [];
+    
+    for (const providerKey of toolSupportedProviders) {
+        try {
+            const client = createClient(providerKey);
+            console.log(`Tentando G4F com tools - provedor: ${providerKey}, modelo: ${modelName}`);
+            
+            const response = await client.chat.completions.create({
+                model: modelName,
+                messages: messages,
+                tools: tools,
+                tool_choice: "auto"
+            });
+            
+            if (response?.choices?.[0]?.message) {
+                console.log(`G4F com tools sucesso com provedor: ${providerKey}`);
+                return response.choices[0].message;
+            }
+        } catch (e) {
+            console.log(`G4F com tools - provedor ${providerKey} falhou:`, e.message);
+            errors.push(`${providerKey}: ${e.message}`);
+            continue;
+        }
+    }
+    
+    // Fallback: tenta sem tools se nenhum provedor com tools funcionou
+    console.log('Nenhum provedor G4F suportou tools, tentando sem tools...');
+    try {
+        return await callG4F(model, messages, preferredProvider);
+    } catch (fallbackError) {
+        throw new Error(`G4F falhou mesmo sem tools: ${fallbackError.message}. Erros anteriores: ${errors.join('; ')}`);
+    }
+};
+
 app.post('/api/chat', auth, async (req, res) => {
     const { chatId, messages, model, userSystemPrompt, provider } = req.body;
     
@@ -1551,38 +1604,129 @@ app.post('/api/swarm', auth, async (req, res) => {
 app.post('/api/chat/tools', auth, async (req, res) => {
     const { chatId, messages, model, models, userSystemPrompt, enableSwarm = true, provider } = req.body;
     
-    // Se usar GPT4Free (sem suporte a ferramentas, redireciona para chat simples)
+    // Se usar GPT4Free
     if (provider === 'g4f') {
-        // G4F não suporta function calling, faz chat simples
+        // Obtém system prompt global
         const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
         const globalSystemPrompt = globalSystemPromptConfig?.value || '';
         
         const systemContent = [];
         if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
-        systemContent.push('Você é um assistente de IA avançado. Nota: As ferramentas avançadas (Swarm, bash, web) não estão disponíveis no modo GPT4Free.');
+        
+        // Adiciona instruções de ferramentas se Swarm estiver habilitado
+        if (enableSwarm) {
+            systemContent.push(`Você é um assistente de IA avançado com acesso a ferramentas poderosas.
+
+## FERRAMENTAS DISPONÍVEIS (G4F)
+
+Nota: Nem todos os provedores G4F suportam ferramentas avançadas. Se uma ferramenta não estiver disponível, informe ao usuário.
+
+### 🎨 GERAÇÃO DE MÍDIA
+- **generate_image**: Gera imagens com base em descrições
+- **generate_audio**: Gera áudio (fala ou música) com base em texto ou descrição  
+- **generate_video**: Gera vídeos curtos com base em descrições
+
+### 🛠️ FERRAMENTAS CUSTOMIZADAS
+- **create_custom_tool**: Cria uma nova ferramenta reutilizável para o usuário
+- **execute_custom_tool**: Executa uma ferramenta criada anteriormente
+- **list_custom_tools**: Lista ferramentas do usuário
+- **delete_custom_tool**: Remove uma ferramenta
+
+### 💻 TERMINAL
+- **execute_bash**: Executa comandos no terminal bash (com segurança)
+
+### 🌐 WEB
+- **web_search**: Pesquisa na web (DuckDuckGo)
+- **web_scrape**: Extrai conteúdo de páginas web
+- **http_request**: Faz requisições HTTP customizadas
+
+### 🔍 NAVEGADOR AVANÇADO
+- **browser_console**: Executa JavaScript no console de um site
+- **network_monitor**: Monitora requisições de rede de uma página
+
+Use as ferramentas quando apropriado, mas esteja ciente de que nem todas podem funcionar no modo G4F.`);
+        } else {
+            systemContent.push('Você é um assistente de IA avançado. As ferramentas avançadas não estão disponíveis neste modo.');
+        }
+        
         if (userSystemPrompt) systemContent.push(userSystemPrompt);
         if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
         
-        const msgs = systemContent.length > 0 
-            ? [{ role: "system", content: systemContent.join('\n\n') }, ...messages]
-            : [...messages];
-        
+        const msgs = [{ role: "system", content: systemContent.join('\n\n') }, ...messages];
+        const tools = enableSwarm ? getAvailableTools(req.user._id) : undefined;
+
+        console.log('=== DEBUG G4F TOOLS ===');
+        console.log('enableSwarm:', enableSwarm);
+        console.log('tools defined:', !!tools);
+        console.log('tools count:', tools ? tools.length : 0);
+        console.log('model:', model);
+
         try {
-            const msg = await callG4F(model, msgs);
-            res.json({ content: msg.content, provider: 'g4f' });
+            let assistantMessage;
             
+            if (enableSwarm && tools) {
+                // Tenta usar tools
+                assistantMessage = await callG4FWithTools(model, msgs, tools);
+                console.log('G4F tool_calls:', !!assistantMessage.tool_calls);
+            } else {
+                // Chat simples sem tools
+                assistantMessage = await callG4F(model, msgs);
+            }
+            
+            // Processa tool calls se houver
+            let iterations = 0;
+            const maxIterations = 5; // Menos iterações para G4F
+            
+            while (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxIterations) {
+                iterations++;
+                console.log(`G4F tool iteration ${iterations}`);
+                
+                // Adiciona a mensagem do assistente com tool_calls
+                msgs.push(assistantMessage);
+                
+                // Processa as ferramentas (passa userId para ferramentas customizadas)
+                const toolResults = await processToolCalls(assistantMessage.tool_calls, null, model, req.user._id, models);
+                
+                // Adiciona os resultados das ferramentas
+                msgs.push(...toolResults);
+                
+                // Incrementa uso
+                User.findByIdAndUpdate(req.user._id, { 
+                    $inc: { 'usage.requests': toolResults.length } 
+                }).catch(() => {});
+                
+                // Faz nova chamada para processar os resultados
+                if (enableSwarm && tools) {
+                    assistantMessage = await callG4FWithTools(model, msgs, tools);
+                } else {
+                    assistantMessage = await callG4F(model, msgs);
+                }
+            }
+
+            // Prepara resposta final
+            const finalResponse = {
+                role: 'assistant',
+                content: assistantMessage.content || '',
+                swarm_used: iterations > 0,
+                swarm_iterations: iterations,
+                provider: 'g4f'
+            };
+
+            res.json(finalResponse);
+
+            // Incrementa uso e salva histórico
             User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
             
             if (chatId) {
                 Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
                     if (chat) {
                         chat.messages.push(messages[messages.length - 1]);
-                        chat.messages.push(msg);
+                        chat.messages.push({ role: 'assistant', content: finalResponse.content });
                         chat.model = model;
                         chat.updatedAt = Date.now();
                         await chat.save();
                     }
-                }).catch(err => console.error('Erro ao salvar histórico:', err));
+                }).catch(err => console.error('Erro ao salvar histórico G4F:', err));
             }
             return;
         } catch (e) {
@@ -1617,6 +1761,11 @@ Você tem acesso a um poderoso conjunto de ferramentas. Use-as quando necessári
 ### 🔄 DELEGAÇÃO (Swarm)
 - **swarm_delegate**: Delega tarefas para agentes paralelos. Use para múltiplas tarefas independentes.
 
+### 🎨 GERAÇÃO DE MÍDIA
+- **generate_image**: Gera imagens com base em descrições (DALL-E, Stable Diffusion, etc.)
+- **generate_audio**: Gera áudio (fala ou música) com base em texto ou descrição
+- **generate_video**: Gera vídeos curtos com base em descrições
+
 ### 🛠️ FERRAMENTAS CUSTOMIZADAS  
 - **create_custom_tool**: Cria uma nova ferramenta reutilizável para o usuário
 - **execute_custom_tool**: Executa uma ferramenta criada anteriormente
@@ -1636,6 +1785,9 @@ Você tem acesso a um poderoso conjunto de ferramentas. Use-as quando necessári
 - **network_monitor**: Monitora requisições de rede de uma página
 
 ### QUANDO USAR CADA FERRAMENTA:
+- Usuário quer gerar imagem → **generate_image**
+- Usuário quer gerar áudio/música → **generate_audio** 
+- Usuário quer gerar vídeo → **generate_video**
 - Usuário quer criar automação/script → **create_custom_tool**
 - Precisa de informação atualizada → **web_search**
 - Quer dados de um site específico → **web_scrape** ou **browser_console**

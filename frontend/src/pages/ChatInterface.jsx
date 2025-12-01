@@ -565,7 +565,11 @@ export default function ChatInterface({ user, setUser }) {
               </span>
             </span>
             {swarmEnabled && (
-              <span className="text-purple-400 font-bold flex items-center gap-1" title="A IA pode usar agentes paralelos para tarefas complexas">
+              <span className="text-purple-400 font-bold flex items-center gap-1" title={
+                selectedProvider === 'g4f' 
+                  ? "Swarm ativo: Algumas ferramentas podem funcionar no G4F (depende do provedor)" 
+                  : "A IA pode usar agentes paralelos para tarefas complexas"
+              }>
                 <Zap size={14}/> SWARM
               </span>
             )}
@@ -587,8 +591,10 @@ export default function ChatInterface({ user, setUser }) {
                     <Zap size={18}/> <span className="font-bold">Modo Swarm Ativo</span>
                   </div>
                   <p className="text-xs opacity-80">
-                    A IA pode delegar tarefas para agentes secundários em paralelo, 
-                    economizando contexto e aumentando eficiência. Ideal para tarefas complexas!
+                    {selectedProvider === 'g4f' 
+                      ? "A IA pode tentar usar ferramentas avançadas no G4F. Nem todas as ferramentas funcionam em todos os provedores gratuitos."
+                      : "A IA pode delegar tarefas para agentes paralelos em paralelo, economizando contexto e aumentando eficiência. Ideal para tarefas complexas!"
+                    }
                   </p>
                 </div>
               )}
