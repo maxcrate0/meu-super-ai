@@ -417,8 +417,13 @@ app.post('/api/chat', auth, async (req, res) => {
         }
     });
 
-    // Monta mensagens com system prompt
+    // Obtém system prompt global (prioridade máxima, invisível ao usuário)
+    const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
+    const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+    
+    // Monta mensagens com system prompt (global tem prioridade)
     const systemContent = [];
+    if (globalSystemPrompt) systemContent.push(globalSystemPrompt); // Prioridade máxima
     if (userSystemPrompt) systemContent.push(userSystemPrompt);
     if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
     
@@ -1262,7 +1267,12 @@ return valor1 + valor2;
 \`\`\`
 ` : '';
 
+    // Obtém system prompt global (prioridade máxima, invisível ao usuário)
+    const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
+    const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+    
     const systemContent = [];
+    if (globalSystemPrompt) systemContent.push(globalSystemPrompt); // Prioridade máxima - admin
     systemContent.push(`Você é um assistente de IA avançado com acesso a ferramentas poderosas.${toolsInstructions}`);
     if (userSystemPrompt) systemContent.push(userSystemPrompt);
     if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
@@ -1482,10 +1492,12 @@ app.get('/api/admin/config', auth, adminOnly, async (req, res) => {
         await connectDB();
         const apiKeyConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
         const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
+        const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
         res.json({
             hasGlobalApiKey: !!apiKeyConfig?.value,
             globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null,
-            defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free'
+            defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free',
+            globalSystemPrompt: globalSystemPromptConfig?.value || ''
         });
     } catch (err) {
         console.error('Erro ao carregar config:', err);
@@ -1552,6 +1564,28 @@ app.post('/api/admin/config/default-model', auth, adminOnly, async (req, res) =>
     } catch (err) {
         console.error('Erro ao salvar modelo padrão:', err);
         res.status(500).json({ error: 'Erro ao salvar modelo: ' + err.message });
+    }
+});
+
+// Salvar system prompt global (invisível aos usuários)
+app.post('/api/admin/config/system-prompt', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { systemPrompt } = req.body;
+        
+        await GlobalConfig.findOneAndUpdate(
+            { key: 'GLOBAL_SYSTEM_PROMPT' },
+            { key: 'GLOBAL_SYSTEM_PROMPT', value: systemPrompt || '' },
+            { upsert: true, new: true }
+        );
+        
+        res.json({ 
+            success: true, 
+            globalSystemPrompt: systemPrompt || ''
+        });
+    } catch (err) {
+        console.error('Erro ao salvar system prompt global:', err);
+        res.status(500).json({ error: 'Erro ao salvar system prompt: ' + err.message });
     }
 });
 

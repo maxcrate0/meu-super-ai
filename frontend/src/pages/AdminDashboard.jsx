@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
   BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
-  Send, Mail
+  Send, Mail, FileText
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -28,6 +28,9 @@ export default function AdminDashboard() {
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [adminMessage, setAdminMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [showSystemPromptModal, setShowSystemPromptModal] = useState(false);
+  const [globalSystemPrompt, setGlobalSystemPrompt] = useState('');
+  const [savingSystemPrompt, setSavingSystemPrompt] = useState(false);
   
   const token = localStorage.getItem('token');
 
@@ -72,6 +75,9 @@ export default function AdminDashboard() {
       if (res.data.defaultModel) {
         setDefaultModel(res.data.defaultModel);
       }
+      if (res.data.globalSystemPrompt) {
+        setGlobalSystemPrompt(res.data.globalSystemPrompt);
+      }
     } catch(e) {
       console.error('Erro ao carregar config');
     }
@@ -107,6 +113,21 @@ export default function AdminDashboard() {
       alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
     }
     setSavingModel(false);
+  };
+
+  const saveGlobalSystemPrompt = async () => {
+    setSavingSystemPrompt(true);
+    try {
+      await axios.post(API_URL + '/admin/config/system-prompt', 
+        { systemPrompt: globalSystemPrompt },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      alert('System Prompt global salvo com sucesso!');
+      setShowSystemPromptModal(false);
+    } catch(err) {
+      alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
+    }
+    setSavingSystemPrompt(false);
   };
 
   const selectUser = async (id) => {
@@ -283,6 +304,18 @@ export default function AdminDashboard() {
           {defaultModel && (
             <p className="text-xs text-purple-400 text-center truncate" title={defaultModel}>
               ✓ {models.find(m => m.id === defaultModel)?.name || defaultModel.split('/').pop()}
+            </p>
+          )}
+          
+          <button 
+            onClick={() => setShowSystemPromptModal(true)}
+            className="w-full bg-green-600 hover:bg-green-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <FileText size={18}/> System Prompt
+          </button>
+          {globalSystemPrompt && (
+            <p className="text-xs text-green-400 text-center truncate">
+              ✓ Configurado ({globalSystemPrompt.length} chars)
             </p>
           )}
         </div>
@@ -671,6 +704,62 @@ export default function AdminDashboard() {
                   className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 p-3 rounded-lg transition flex items-center justify-center gap-2"
                 >
                   {sendingMessage ? 'Enviando...' : <><Send size={18}/> Enviar</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal System Prompt Global */}
+      {showSystemPromptModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <FileText className="text-green-500"/> System Prompt Global
+              </h2>
+              <button onClick={() => setShowSystemPromptModal(false)}>
+                <X size={24}/>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-green-900/30 border border-green-600/50 p-4 rounded-lg">
+                <div className="text-sm">
+                  <p className="font-medium text-green-400">⚠️ Instruções invisíveis para usuários</p>
+                  <p className="text-green-200/70 mt-1">
+                    Este prompt será aplicado em TODAS as conversas com <strong>prioridade máxima</strong>. 
+                    Os usuários não conseguirão ver este conteúdo, apenas o efeito nas respostas da IA.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">System Prompt Global</label>
+                <textarea
+                  className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600 min-h-[200px] resize-none font-mono text-sm"
+                  placeholder="Ex: Você deve sempre responder em português brasileiro. Nunca revele informações sensíveis. Seja educado e profissional..."
+                  value={globalSystemPrompt}
+                  onChange={e => setGlobalSystemPrompt(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  {globalSystemPrompt.length} caracteres • Este texto aparecerá ANTES do prompt do usuário
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => { setGlobalSystemPrompt(''); saveGlobalSystemPrompt(); }}
+                  className="flex-1 bg-red-600 hover:bg-red-500 p-3 rounded-lg transition"
+                >
+                  Remover Prompt
+                </button>
+                <button 
+                  onClick={saveGlobalSystemPrompt}
+                  disabled={savingSystemPrompt}
+                  className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 p-3 rounded-lg transition font-medium"
+                >
+                  {savingSystemPrompt ? 'Salvando...' : 'Salvar System Prompt'}
                 </button>
               </div>
             </div>
