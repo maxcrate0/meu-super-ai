@@ -182,19 +182,32 @@ export default function ChatInterface({ user, setUser }) {
       
       if (modelsRes.data && modelsRes.data.length > 0) {
         setModels(modelsRes.data);
-        
-        // Usa o modelo padrão do admin se disponível
-        const adminDefault = defaultModelRes.data?.defaultModel;
-        if (adminDefault && modelsRes.data.find(m => m.id === adminDefault)) {
-          setSelectedModel(adminDefault);
-        } else if (!modelsRes.data.find(m => m.id === selectedModel)) {
-          setSelectedModel(modelsRes.data[0].id);
-        }
       }
       
       // Carrega modelos G4F
       if (g4fModelsRes.data && g4fModelsRes.data.length > 0) {
         setG4fModels(g4fModelsRes.data);
+      }
+
+      // Configura modelo padrão
+      const adminDefault = defaultModelRes.data?.defaultModel;
+      if (adminDefault) {
+        // Verifica se está no OpenRouter
+        if (modelsRes.data && modelsRes.data.find(m => m.id === adminDefault)) {
+          setSelectedModel(adminDefault);
+          setSelectedProvider('openrouter');
+        } 
+        // Verifica se está no G4F
+        else if (g4fModelsRes.data && g4fModelsRes.data.find(m => m.id === adminDefault)) {
+          setSelectedModel(adminDefault);
+          setSelectedProvider('g4f');
+        }
+      } else {
+        // Fallback se não tiver padrão configurado
+        if (modelsRes.data && modelsRes.data.length > 0 && !modelsRes.data.find(m => m.id === selectedModel)) {
+          setSelectedModel(modelsRes.data[0].id);
+          setSelectedProvider('openrouter');
+        }
       }
     } catch(e) {
       // Fallback

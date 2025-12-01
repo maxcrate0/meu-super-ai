@@ -191,11 +191,23 @@ app.get('/api/models/g4f', async (req, res) => {
                 
                 if (models && models.length > 0) {
                     models.forEach(m => {
+                        let type = m.type || 'chat';
+                        const idLower = m.id.toLowerCase();
+                        
+                        // Detecção de tipo baseada no ID
+                        if (idLower.includes('image') || idLower.includes('flux') || idLower.includes('sdxl') || idLower.includes('midjourney') || idLower.includes('diffusion') || idLower.includes('dall-e')) {
+                            type = 'image';
+                        } else if (idLower.includes('video') || idLower.includes('luma') || idLower.includes('kling') || idLower.includes('runway')) {
+                            type = 'video';
+                        } else if (idLower.includes('audio') || idLower.includes('music') || idLower.includes('speech') || idLower.includes('tts')) {
+                            type = 'audio';
+                        }
+
                         allModels.push({
                             id: m.id,
                             name: m.id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
                             provider: providerName,
-                            type: m.type || 'chat'
+                            type: type
                         });
                     });
                 }

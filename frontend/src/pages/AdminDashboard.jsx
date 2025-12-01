@@ -86,16 +86,21 @@ export default function AdminDashboard() {
 
   const loadModels = async () => {
     try {
-      const res = await axios.get(API_URL + '/models');
-      if (res.data && res.data.length > 0) {
-        setModels(res.data);
-      }
+      const [openRouterRes, g4fRes] = await Promise.all([
+        axios.get(API_URL + '/models').catch(() => ({ data: [] })),
+        axios.get(API_URL + '/models/g4f').catch(() => ({ data: [] }))
+      ]);
+
+      const openRouterModels = (openRouterRes.data || []).map(m => ({ ...m, source: 'OpenRouter', type: 'chat' }));
+      const g4fModels = (g4fRes.data || []).map(m => ({ ...m, source: 'GPT4Free' }));
+      
+      setModels([...openRouterModels, ...g4fModels]);
     } catch(e) {
+      console.error('Erro ao carregar modelos', e);
       // Fallback
       setModels([
-        {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash"},
-        {id:"meta-llama/llama-3.3-70b-instruct:free", name:"Llama 3.3 70B"},
-        {id:"deepseek/deepseek-chat:free", name:"DeepSeek V3"}
+        {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash", source: 'OpenRouter', type: 'chat'},
+        {id:"deepseek-v3", name:"DeepSeek V3", source: 'GPT4Free', type: 'chat'}
       ]);
     }
   };
@@ -648,9 +653,25 @@ export default function AdminDashboard() {
                   value={defaultModel}
                   onChange={e => setDefaultModel(e.target.value)}
                 >
-                  {models.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
+                  <option value="">Selecione um modelo...</option>
+                  
+                  <optgroup label="Geração de Texto (Chat)">
+                    {models.filter(m => !m.type || m.type === 'chat').sort((a,b) => a.name.localeCompare(b.name)).map(m => (
+                      <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
+                    ))}
+                  </optgroup>
+
+                  <optgroup label="Geração de Imagem">
+                    {models.filter(m => m.type === 'image').sort((a,b) => a.name.localeCompare(b.name)).map(m => (
+                      <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
+                    ))}
+                  </optgroup>
+
+                  <optgroup label="Geração de Áudio/Vídeo">
+                    {models.filter(m => m.type === 'audio' || m.type === 'video').sort((a,b) => a.name.localeCompare(b.name)).map(m => (
+                      <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
+                    ))}
+                  </optgroup>
                 </select>
                 <p className="text-xs text-gray-500 mt-2">{models.length} modelos gratuitos disponíveis</p>
               </div>
