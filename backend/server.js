@@ -17,6 +17,7 @@ const User = require('./models/User');
 const Chat = require('./models/Chat');
 const CustomTool = require('./models/CustomTool');
 const GlobalConfig = require('./models/GlobalConfig');
+const PageContent = require('./models/PageContent');
 
 const execPromise = util.promisify(exec);
 const app = express();
@@ -1610,5 +1611,228 @@ app.get('/api/admin/stats', auth, adminOnly, async (req, res) => {
         res.status(500).json({ error: 'Erro ao carregar estatísticas: ' + err.message });
     }
 });
+
+// ============ CONTEÚDO DAS PÁGINAS (PÚBLICO) ============
+
+// Obter conteúdo de uma página (público)
+app.get('/api/content/:page', async (req, res) => {
+    try {
+        await connectDB();
+        const { page } = req.params;
+        
+        if (!['homepage', 'docs'].includes(page)) {
+            return res.status(400).json({ error: 'Página inválida' });
+        }
+        
+        const content = await PageContent.findOne({ page });
+        
+        if (!content) {
+            // Retorna conteúdo padrão se não existir customização
+            return res.json({ 
+                page, 
+                sections: [],
+                isDefault: true
+            });
+        }
+        
+        res.json(content);
+    } catch (err) {
+        console.error('Erro ao buscar conteúdo:', err);
+        res.status(500).json({ error: 'Erro ao buscar conteúdo' });
+    }
+});
+
+// ============ ADMIN - EDIÇÃO DE CONTEÚDO ============
+
+// Listar todas as páginas editáveis
+app.get('/api/admin/content', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const pages = await PageContent.find({});
+        
+        // Retorna as páginas existentes ou placeholder para as padrão
+        const result = ['homepage', 'docs'].map(pageName => {
+            const existing = pages.find(p => p.page === pageName);
+            return existing || { page: pageName, sections: [], isDefault: true };
+        });
+        
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao listar páginas' });
+    }
+});
+
+// Obter conteúdo de uma página específica (admin)
+app.get('/api/admin/content/:page', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { page } = req.params;
+        
+        if (!['homepage', 'docs'].includes(page)) {
+            return res.status(400).json({ error: 'Página inválida' });
+        }
+        
+        let content = await PageContent.findOne({ page });
+        
+        if (!content) {
+            // Cria conteúdo padrão
+            content = await PageContent.create({
+                page,
+                sections: getDefaultSections(page),
+                updatedBy: req.user._id
+            });
+        }
+        
+        res.json(content);
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao buscar conteúdo' });
+    }
+});
+
+// Atualizar conteúdo de uma página
+app.put('/api/admin/content/:page', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { page } = req.params;
+        const { sections } = req.body;
+        
+        if (!['homepage', 'docs'].includes(page)) {
+            return res.status(400).json({ error: 'Página inválida' });
+        }
+        
+        const content = await PageContent.findOneAndUpdate(
+            { page },
+            { 
+                page,
+                sections,
+                updatedAt: new Date(),
+                updatedBy: req.user._id
+            },
+            { upsert: true, new: true }
+        );
+        
+        res.json({ success: true, content });
+    } catch (err) {
+        console.error('Erro ao atualizar conteúdo:', err);
+        res.status(500).json({ error: 'Erro ao atualizar conteúdo' });
+    }
+});
+
+// Adicionar seção a uma página
+app.post('/api/admin/content/:page/section', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { page } = req.params;
+        const section = req.body;
+        
+        if (!section.id) {
+            section.id = 'section_' + Date.now();
+        }
+        
+        let content = await PageContent.findOne({ page });
+        
+        if (!content) {
+            content = await PageContent.create({
+                page,
+                sections: [section],
+                updatedBy: req.user._id
+            });
+        } else {
+            content.sections.push(section);
+            content.updatedAt = new Date();
+            content.updatedBy = req.user._id;
+            await content.save();
+        }
+        
+        res.json({ success: true, section, content });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao adicionar seção' });
+    }
+});
+
+// Atualizar seção específica
+app.patch('/api/admin/content/:page/section/:sectionId', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { page, sectionId } = req.params;
+        const updates = req.body;
+        
+        const content = await PageContent.findOne({ page });
+        if (!content) {
+            return res.status(404).json({ error: 'Página não encontrada' });
+        }
+        
+        const sectionIndex = content.sections.findIndex(s => s.id === sectionId);
+        if (sectionIndex === -1) {
+            return res.status(404).json({ error: 'Seção não encontrada' });
+        }
+        
+        Object.assign(content.sections[sectionIndex], updates);
+        content.updatedAt = new Date();
+        content.updatedBy = req.user._id;
+        await content.save();
+        
+        res.json({ success: true, section: content.sections[sectionIndex] });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao atualizar seção' });
+    }
+});
+
+// Deletar seção
+app.delete('/api/admin/content/:page/section/:sectionId', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const { page, sectionId } = req.params;
+        
+        const content = await PageContent.findOne({ page });
+        if (!content) {
+            return res.status(404).json({ error: 'Página não encontrada' });
+        }
+        
+        content.sections = content.sections.filter(s => s.id !== sectionId);
+        content.updatedAt = new Date();
+        content.updatedBy = req.user._id;
+        await content.save();
+        
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Erro ao deletar seção' });
+    }
+});
+
+// Função para obter seções padrão
+function getDefaultSections(page) {
+    if (page === 'homepage') {
+        return [
+            {
+                id: 'hero',
+                type: 'hero',
+                title: 'Meu Super AI',
+                subtitle: 'Plataforma de Inteligência Artificial avançada com múltiplas ferramentas para potencializar sua produtividade.',
+                visible: true,
+                order: 0
+            },
+            {
+                id: 'features',
+                type: 'feature',
+                title: 'Recursos Poderosos',
+                visible: true,
+                order: 1
+            }
+        ];
+    } else if (page === 'docs') {
+        return [
+            {
+                id: 'intro',
+                type: 'text',
+                title: 'Introdução',
+                content: '# Bem-vindo ao Meu Super AI\n\nDocumentação completa da plataforma.',
+                visible: true,
+                order: 0
+            }
+        ];
+    }
+    return [];
+}
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

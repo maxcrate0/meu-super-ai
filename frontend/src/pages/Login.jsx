@@ -1,16 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { Loader2, User, Lock } from 'lucide-react';
+import { Loader2, User, Lock, ArrowLeft } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
 export default function Login({ setUser }) {
-  const [isRegister, setIsRegister] = useState(false);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [isRegister, setIsRegister] = useState(searchParams.get('register') === 'true');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Atualiza isRegister quando searchParams muda
+  useEffect(() => {
+    setIsRegister(searchParams.get('register') === 'true');
+  }, [searchParams]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,7 +34,15 @@ export default function Login({ setUser }) {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data));
         setUser(res.data);
-        window.location.href = '/';
+        
+        // Verifica se há redirecionamento pendente
+        const redirectTo = localStorage.getItem('redirectAfterLogin');
+        if (redirectTo) {
+          localStorage.removeItem('redirectAfterLogin');
+          navigate(redirectTo);
+        } else {
+          navigate('/');
+        }
       } else {
         setStatus(res.data.message || 'Conta criada! Faça login.');
         setIsRegister(false);
@@ -40,6 +56,12 @@ export default function Login({ setUser }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white p-4">
       <div className="w-full max-w-md">
+        {/* Link para voltar */}
+        <Link to="/" className="inline-flex items-center space-x-2 text-gray-400 hover:text-white mb-6 transition-colors">
+          <ArrowLeft size={18} />
+          <span>Voltar para Home</span>
+        </Link>
+
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
             Meu Super AI

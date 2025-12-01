@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
   BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
-  Send, Mail, FileText
+  Send, Mail, FileText, Layout
 } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
@@ -318,6 +319,13 @@ export default function AdminDashboard() {
               ✓ Configurado ({globalSystemPrompt.length} chars)
             </p>
           )}
+          
+          <Link 
+            to="/admin/content"
+            className="w-full bg-pink-600 hover:bg-pink-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Layout size={18}/> Editar Páginas
+          </Link>
         </div>
 
         {/* Users List */}
@@ -354,9 +362,9 @@ export default function AdminDashboard() {
         </div>
 
         <div className="p-4 border-t border-gray-700">
-          <a href="/" className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition">
-            <ChevronLeft size={18}/> Voltar ao Chat
-          </a>
+          <Link to="/" className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition">
+            <ChevronLeft size={18}/> Voltar ao Início
+          </Link>
         </div>
       </div>
 
