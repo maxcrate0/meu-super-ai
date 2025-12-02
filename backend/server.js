@@ -7,12 +7,87 @@ const bcrypt = require('bcryptjs');
 const OpenAI = require('openai');
 const axios = require('axios');
 const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { exec } = require('child_process');
 const util = require('util');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
+
+// ============ SISTEMA DE CACHE EM MEMÓRIA (alternativa ao Redis) ============
+class MemoryCache {
+    constructor() {
+        this.cache = new Map();
+        this.timers = new Map();
+    }
+    
+    set(key, value, ttlSeconds = 300) {
+        // Limpa timer anterior se existir
+        if (this.timers.has(key)) {
+            clearTimeout(this.timers.get(key));
+        }
+        
+        this.cache.set(key, {
+            value,
+            createdAt: Date.now(),
+            ttl: ttlSeconds * 1000
+        });
+        
+        // Auto-expiração
+        const timer = setTimeout(() => {
+            this.cache.delete(key);
+            this.timers.delete(key);
+        }, ttlSeconds * 1000);
+        
+        this.timers.set(key, timer);
+        return true;
+    }
+    
+    get(key) {
+        const item = this.cache.get(key);
+        if (!item) return null;
+        
+        // Verifica se expirou
+        if (Date.now() - item.createdAt > item.ttl) {
+            this.cache.delete(key);
+            return null;
+        }
+        
+        return item.value;
+    }
+    
+    del(key) {
+        if (this.timers.has(key)) {
+            clearTimeout(this.timers.get(key));
+            this.timers.delete(key);
+        }
+        return this.cache.delete(key);
+    }
+    
+    // Limpa caches que começam com um prefixo
+    delByPrefix(prefix) {
+        let count = 0;
+        for (const key of this.cache.keys()) {
+            if (key.startsWith(prefix)) {
+                this.del(key);
+                count++;
+            }
+        }
+        return count;
+    }
+    
+    // Estatísticas do cache
+    stats() {
+        return {
+            size: this.cache.size,
+            keys: Array.from(this.cache.keys())
+        };
+    }
+}
+
+const cache = new MemoryCache();
 
 // GPT4Free - carrega o client direto do g4f.dev
 let g4fClients = null;
@@ -72,9 +147,42 @@ const upload = multer({
 
 // Middlewares
 app.use(compression());
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false // Desabilita CSP para permitir recursos externos
+}));
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'] }));
 app.use(express.json({ limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Rate Limiting Global (100 requests por minuto por IP)
+const globalLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minuto
+    max: 100,
+    message: { error: 'Muitas requisições. Aguarde um momento.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path === '/api/ping' // Não limita health check
+});
+app.use('/api/', globalLimiter);
+
+// Rate Limiting mais restritivo para chat (30 req/min por IP)
+const chatLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    message: { error: 'Limite de mensagens atingido. Aguarde 1 minuto.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Rate Limiting para auth (10 tentativas por 15 min)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 10,
+    message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -86,15 +194,20 @@ let modelsCache = { data: [], lastFetch: 0 };
 let g4fModelsCache = { data: [], lastFetch: 0 };
 const MODELS_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
-// Conexão MongoDB
+// Conexão MongoDB com pooling otimizado
 const connectDB = async () => {
     if (mongoose.connection.readyState >= 1) return;
     try {
         await mongoose.connect(MONGODB_URI, {
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
+            maxPoolSize: 50, // Aumentado para mais conexões simultâneas
+            minPoolSize: 10, // Mantém conexões mínimas abertas
+            maxIdleTimeMS: 30000, // Fecha conexões idle após 30s
+            retryWrites: true,
+            w: 'majority'
         });
-        console.log('MongoDB Conectado');
+        console.log('MongoDB Conectado (pool: 10-50)');
         // Cria admin padrão se não existir
         const adminExists = await User.findOne({ username: 'admin' });
         if (!adminExists) {
@@ -108,15 +221,29 @@ const connectDB = async () => {
 };
 connectDB();
 
-// Middleware de autenticação
+// Middleware de autenticação com cache
 const auth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'Token não fornecido' });
+    
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = await User.findById(decoded.id);
+        
+        // Tenta buscar do cache primeiro
+        const cacheKey = `user:${decoded.id}`;
+        let user = cache.get(cacheKey);
+        
+        if (!user) {
+            user = await User.findById(decoded.id).lean();
+            if (user) {
+                // Cacheia por 5 minutos
+                cache.set(cacheKey, user, 300);
+            }
+        }
+        
         if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
         req.user = user;
+        req.user._id = decoded.id; // Garante que _id está disponível como string
         next();
     } catch (e) {
         res.status(401).json({ error: 'Token inválido' });
@@ -131,33 +258,81 @@ const adminOnly = (req, res, next) => {
     next();
 };
 
-// Helper para obter API Key (prioridade: usuário > global do banco > env)
+// Helper para obter API Key (com cache)
 const getApiKey = async (user) => {
     if (user.personal_api_key) return user.personal_api_key;
-    await connectDB();
-    const globalKey = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
-    if (globalKey) return globalKey.value;
-    return process.env.GLOBAL_API_KEY || '';
+    
+    // Tenta cache primeiro
+    const cacheKey = 'config:OPENROUTER_API_KEY';
+    let apiKey = cache.get(cacheKey);
+    
+    if (apiKey === null) {
+        await connectDB();
+        const globalKey = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' }).lean();
+        apiKey = globalKey?.value || process.env.GLOBAL_API_KEY || '';
+        // Cacheia por 10 minutos
+        cache.set(cacheKey, apiKey, 600);
+    }
+    
+    return apiKey;
 };
 
-// Helper para obter Groq API Key
+// Helper para obter Groq API Key (com cache)
 const getGroqApiKey = async () => {
-    await connectDB();
-    const groqKey = await GlobalConfig.findOne({ key: 'GROQ_API_KEY' });
-    if (groqKey) return groqKey.value;
-    return process.env.GROQ_API_KEY || '';
+    const cacheKey = 'config:GROQ_API_KEY';
+    let groqKey = cache.get(cacheKey);
+    
+    if (groqKey === null) {
+        await connectDB();
+        const keyConfig = await GlobalConfig.findOne({ key: 'GROQ_API_KEY' }).lean();
+        groqKey = keyConfig?.value || process.env.GROQ_API_KEY || '';
+        cache.set(cacheKey, groqKey, 600);
+    }
+    
+    return groqKey;
+};
+
+// Helper para obter System Prompt Global (com cache)
+const getGlobalSystemPrompt = async () => {
+    const cacheKey = 'config:GLOBAL_SYSTEM_PROMPT';
+    let prompt = cache.get(cacheKey);
+    
+    if (prompt === null) {
+        await connectDB();
+        const config = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' }).lean();
+        prompt = config?.value || '';
+        cache.set(cacheKey, prompt, 600);
+    }
+    
+    return prompt;
 };
 
 // ============ ROTAS PÚBLICAS ============
 
 app.get('/api/ping', (req, res) => res.send('pong'));
 
-// Modelos OpenRouter (com cache)
+// Health check detalhado
+app.get('/api/health', async (req, res) => {
+    const health = {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        cache: cache.stats(),
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    };
+    res.json(health);
+});
+
+// Modelos OpenRouter (com cache otimizado)
 app.get('/api/models', async (req, res) => {
-    const now = Date.now();
-    if (modelsCache.data.length > 0 && (now - modelsCache.lastFetch) < MODELS_CACHE_TTL) {
-        return res.json(modelsCache.data);
+    const cacheKey = 'models:openrouter';
+    let models = cache.get(cacheKey);
+    
+    if (models) {
+        return res.json(models);
     }
+    
     try {
         const response = await axios.get('https://openrouter.ai/api/v1/models', { timeout: 10000 });
         const freeModels = response.data.data
@@ -174,11 +349,12 @@ app.get('/api/models', async (req, res) => {
             }))
             .sort((a, b) => a.name.localeCompare(b.name));
         
-        modelsCache = { data: freeModels, lastFetch: now };
+        // Cache por 5 minutos
+        cache.set(cacheKey, freeModels, 300);
         res.json(freeModels);
     } catch (e) {
         console.error('Erro ao buscar modelos:', e.message);
-        // Retorna cache antigo se existir, senão lista vazia
+        // Tenta cache antigo ou retorna vazia
         res.json(modelsCache.data.length > 0 ? modelsCache.data : []);
     }
 });
@@ -363,9 +539,9 @@ app.get('/api/models/g4f', async (req, res) => {
     res.json(g4fModels);
 });
 
-// ============ AUTH ============
+// ============ AUTH (com rate limiting) ============
 
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, async (req, res) => {
     await connectDB();
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username e password são obrigatórios' });
@@ -374,7 +550,7 @@ app.post('/api/register', async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, password: hash });
     res.json({ 
-        token: jwt.sign({ id: user._id }, JWT_SECRET), 
+        token: jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' }), 
         role: user.role, 
         username: user.username,
         theme: user.theme,
@@ -383,7 +559,7 @@ app.post('/api/register', async (req, res) => {
     });
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
     await connectDB();
     const { username, password } = req.body;
     const user = await User.findOne({ username });
@@ -391,7 +567,7 @@ app.post('/api/login', async (req, res) => {
         return res.status(400).json({ error: 'Credenciais inválidas' });
     }
     res.json({ 
-        token: jwt.sign({ id: user._id }, JWT_SECRET), 
+        token: jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' }), 
         role: user.role, 
         username: user.username,
         theme: user.theme,
@@ -427,6 +603,10 @@ app.patch('/api/user/profile', auth, async (req, res) => {
     if (personal_api_key !== undefined) updates.personal_api_key = personal_api_key;
     
     const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true });
+    
+    // Invalida cache do usuário
+    cache.del(`user:${req.user._id}`);
+    
     res.json({
         username: user.username,
         displayName: user.displayName,
@@ -612,7 +792,7 @@ app.delete('/api/chats/:id', auth, async (req, res) => {
     res.json({ success: true });
 });
 
-// ============ CHAT COM IA ============
+// ============ CHAT COM IA (com rate limiting) ============
 
 // Helper para chamada GPT4Free usando g4f.dev client
 const callG4F = async (model, messages, preferredProvider = null) => {
@@ -757,14 +937,13 @@ const callG4FWithTools = async (model, messages, tools, preferredProvider = null
     }
 };
 
-app.post('/api/chat', auth, async (req, res) => {
+app.post('/api/chat', auth, chatLimiter, async (req, res) => {
     const { chatId, messages, model, userSystemPrompt, provider } = req.body;
     
     // Se usar GPT4Free
     if (provider === 'g4f') {
-        // Obtém system prompt global
-        const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
-        const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+        // Obtém system prompt global (com cache)
+        const globalSystemPrompt = await getGlobalSystemPrompt();
         
         const systemContent = [];
         if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
@@ -816,9 +995,8 @@ app.post('/api/chat', auth, async (req, res) => {
         }
     });
 
-    // Obtém system prompt global (prioridade máxima, invisível ao usuário)
-    const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
-    const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+    // Obtém system prompt global (com cache)
+    const globalSystemPrompt = await getGlobalSystemPrompt();
     
     // Monta mensagens com system prompt (global tem prioridade)
     const systemContent = [];
@@ -1757,15 +1935,14 @@ app.post('/api/swarm', auth, async (req, res) => {
     }
 });
 
-// Endpoint de chat com suporte a ferramentas Swarm
-app.post('/api/chat/tools', auth, async (req, res) => {
+// Endpoint de chat com suporte a ferramentas Swarm (com rate limiting)
+app.post('/api/chat/tools', auth, chatLimiter, async (req, res) => {
     const { chatId, messages, model, models, userSystemPrompt, enableSwarm = true, provider } = req.body;
     
     // Se usar GPT4Free
     if (provider === 'g4f') {
-        // Obtém system prompt global
-        const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
-        const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+        // Obtém system prompt global (com cache)
+        const globalSystemPrompt = await getGlobalSystemPrompt();
         
         const systemContent = [];
         if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
@@ -1996,9 +2173,8 @@ return valor1 + valor2;
 \`\`\`
 ` : '';
 
-    // Obtém system prompt global (prioridade máxima, invisível ao usuário)
-    const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
-    const globalSystemPrompt = globalSystemPromptConfig?.value || '';
+    // Obtém system prompt global (com cache)
+    const globalSystemPrompt = await getGlobalSystemPrompt();
     
     const systemContent = [];
     if (globalSystemPrompt) systemContent.push(globalSystemPrompt); // Prioridade máxima - admin
@@ -2264,18 +2440,22 @@ app.post('/api/admin/config/apikey', auth, adminOnly, async (req, res) => {
         if (apiKey !== undefined) {
             await GlobalConfig.findOneAndUpdate(
                 { key: 'OPENROUTER_API_KEY' },
-                { key: 'OPENROUTER_API_KEY', value: apiKey || '' },
+                { key: 'OPENROUTER_API_KEY', value: apiKey || '', updatedAt: new Date() },
                 { upsert: true, new: true }
             );
+            // Invalida cache
+            cache.del('config:OPENROUTER_API_KEY');
         }
         
         // Salvar Groq API Key se fornecida
         if (groqApiKey !== undefined) {
             await GlobalConfig.findOneAndUpdate(
                 { key: 'GROQ_API_KEY' },
-                { key: 'GROQ_API_KEY', value: groqApiKey || '' },
+                { key: 'GROQ_API_KEY', value: groqApiKey || '', updatedAt: new Date() },
                 { upsert: true, new: true }
             );
+            // Invalida cache
+            cache.del('config:GROQ_API_KEY');
         }
         
         // Buscar valores atualizados
@@ -2332,9 +2512,12 @@ app.post('/api/admin/config/system-prompt', auth, adminOnly, async (req, res) =>
         
         await GlobalConfig.findOneAndUpdate(
             { key: 'GLOBAL_SYSTEM_PROMPT' },
-            { key: 'GLOBAL_SYSTEM_PROMPT', value: systemPrompt || '' },
+            { key: 'GLOBAL_SYSTEM_PROMPT', value: systemPrompt || '', updatedAt: new Date() },
             { upsert: true, new: true }
         );
+        
+        // Invalida cache
+        cache.del('config:GLOBAL_SYSTEM_PROMPT');
         
         res.json({ 
             success: true, 
@@ -2346,26 +2529,78 @@ app.post('/api/admin/config/system-prompt', auth, adminOnly, async (req, res) =>
     }
 });
 
-// ============ ESTATÍSTICAS ADMIN ============
+// ============ ESTATÍSTICAS ADMIN (com cache de 1 minuto) ============
 
 app.get('/api/admin/stats', auth, adminOnly, async (req, res) => {
     try {
-        await connectDB();
-        const totalUsers = await User.countDocuments();
-        const totalChats = await Chat.countDocuments();
-        const totalRequests = await User.aggregate([
-            { $group: { _id: null, total: { $sum: '$usage.requests' } } }
-        ]);
+        const cacheKey = 'admin:stats';
+        let stats = cache.get(cacheKey);
         
-        res.json({
-            totalUsers,
-            totalChats,
-            totalRequests: totalRequests[0]?.total || 0
-        });
+        if (!stats) {
+            await connectDB();
+            const [totalUsers, totalChats, totalRequestsResult] = await Promise.all([
+                User.countDocuments(),
+                Chat.countDocuments(),
+                User.aggregate([
+                    { $group: { _id: null, total: { $sum: '$usage.requests' } } }
+                ])
+            ]);
+            
+            stats = {
+                totalUsers,
+                totalChats,
+                totalRequests: totalRequestsResult[0]?.total || 0
+            };
+            
+            // Cache por 1 minuto
+            cache.set(cacheKey, stats, 60);
+        }
+        
+        res.json(stats);
     } catch (err) {
         console.error('Erro ao carregar stats:', err);
         res.status(500).json({ error: 'Erro ao carregar estatísticas: ' + err.message });
     }
+});
+
+// Endpoint admin para limpar cache
+app.post('/api/admin/cache/clear', auth, adminOnly, (req, res) => {
+    const { prefix } = req.body;
+    
+    if (prefix) {
+        const count = cache.delByPrefix(prefix);
+        res.json({ success: true, message: `${count} itens removidos com prefixo "${prefix}"` });
+    } else {
+        // Limpa todo o cache
+        const stats = cache.stats();
+        cache.cache.clear();
+        cache.timers.forEach(t => clearTimeout(t));
+        cache.timers.clear();
+        res.json({ success: true, message: `Cache limpo. ${stats.size} itens removidos.` });
+    }
+});
+
+// Endpoint admin para ver status do cache
+app.get('/api/admin/cache/stats', auth, adminOnly, (req, res) => {
+    res.json(cache.stats());
+});
+
+// Endpoint admin para status do servidor
+app.get('/api/admin/server-status', auth, adminOnly, (req, res) => {
+    const used = process.memoryUsage();
+    res.json({
+        uptime: process.uptime(),
+        memory: {
+            heapUsed: Math.round(used.heapUsed / 1024 / 1024) + ' MB',
+            heapTotal: Math.round(used.heapTotal / 1024 / 1024) + ' MB',
+            external: Math.round(used.external / 1024 / 1024) + ' MB',
+            rss: Math.round(used.rss / 1024 / 1024) + ' MB'
+        },
+        cache: cache.stats(),
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        nodeVersion: process.version,
+        platform: process.platform
+    });
 });
 
 // ============ CONTEÚDO DAS PÁGINAS (PÚBLICO) ============
