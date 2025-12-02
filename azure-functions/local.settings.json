@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "MONGODB_URI": "",
+    "JWT_SECRET": "",
+    "GLOBAL_API_KEY": ""
+  },
+  "Host": {
+    "CORS": "*",
+    "CORSCredentials": false
+  }
+}

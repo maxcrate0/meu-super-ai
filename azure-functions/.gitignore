@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Local settings (contains secrets)
+local.settings.json
+
+# Azure Functions
+.python_packages/
+__pycache__/
+.venv/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+bin/
+obj/

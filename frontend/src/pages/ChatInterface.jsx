@@ -13,6 +13,11 @@ import { useLanguage } from '../i18n/LanguageContext';
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
+// URL das Azure Functions para operações pesadas (chat com IA)
+// Se não configurado, usa o backend normal
+const RAW_FUNCTIONS_URL = import.meta.env.VITE_FUNCTIONS_URL || '';
+const FUNCTIONS_URL = RAW_FUNCTIONS_URL.endsWith('/') ? RAW_FUNCTIONS_URL.slice(0, -1) : RAW_FUNCTIONS_URL;
+
 axios.defaults.timeout = 120000;
 
 export default function ChatInterface({ user, setUser }) {
@@ -384,7 +389,11 @@ export default function ChatInterface({ user, setUser }) {
         enableSwarm: swarmEnabled
       };
 
-      const res = await axios.post(API_URL + endpoint, payload, {
+      // Usa Azure Functions se configurado (mais escalável)
+      // Senão usa o backend normal
+      const baseUrl = FUNCTIONS_URL || API_URL;
+      
+      const res = await axios.post(baseUrl + endpoint, payload, {
         headers: { Authorization: 'Bearer ' + token },
         timeout: 300000 // 5 minutos para ferramentas complexas
       });
