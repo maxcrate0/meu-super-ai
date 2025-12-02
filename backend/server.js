@@ -855,40 +855,20 @@ const getAvailableTools = (userId) => [
         type: "function",
         function: {
             name: "swarm_delegate",
-            description: `FERRAMENTA DE DELEGAÇÃO PARALELA - Use esta ferramenta para executar múltiplas tarefas SIMULTANEAMENTE através de agentes IA secundários.
+            description: `Executa múltiplas tarefas em PARALELO usando agentes IA secundários. Use quando precisar fazer várias coisas ao mesmo tempo, comparar tópicos, ou pesquisar múltiplos assuntos.
 
-CASOS DE USO OBRIGATÓRIOS:
-1. Quando o usuário pedir para pesquisar sobre MÚLTIPLOS tópicos
-2. Quando o usuário quiser comparar diferentes assuntos
-3. Quando for necessário analisar dados de diferentes ângulos
-4. Quando houver palavras como: "paralelo", "simultâneo", "ao mesmo tempo", "compare", "pesquise X, Y e Z"
-
-COMO USAR:
-- Crie uma tarefa para cada item/tópico diferente
-- Cada agente recebe uma instrução independente
-- Os resultados são consolidados automaticamente
-
-EXEMPLO: Para "pesquise sobre Python e JavaScript", crie 2 tarefas com id="python" e id="javascript".`,
+EXEMPLO: Para pesquisar Python e JavaScript, use:
+task1="Pesquise sobre Python" e task2="Pesquise sobre JavaScript"`,
             parameters: {
                 type: "object",
                 properties: {
-                    tasks: {
-                        type: "array",
-                        description: "Array de tarefas a serem executadas em paralelo. Cada tarefa deve ter id único e instruction clara.",
-                        items: {
-                            type: "object",
-                            properties: {
-                                id: { type: "string", description: "ID único da tarefa (ex: 'task1', 'python', 'analise_mercado')" },
-                                instruction: { type: "string", description: "Instrução completa para o agente executar. Seja específico e detalhado." },
-                                context: { type: "string", description: "Dados ou contexto adicional para a tarefa (opcional)" },
-                                output_format: { type: "string", description: "Formato desejado da resposta: 'text', 'json', 'markdown', 'list' (opcional)" }
-                            },
-                            required: ["id", "instruction"]
-                        },
-                        minItems: 1
-                    }
+                    task1: { type: "string", description: "Primeira tarefa/instrução para um agente executar" },
+                    task2: { type: "string", description: "Segunda tarefa/instrução (opcional)" },
+                    task3: { type: "string", description: "Terceira tarefa/instrução (opcional)" },
+                    task4: { type: "string", description: "Quarta tarefa/instrução (opcional)" },
+                    task5: { type: "string", description: "Quinta tarefa/instrução (opcional)" }
                 },
-                required: ["tasks"]
+                required: ["task1"]
             }
         }
     },
@@ -1255,19 +1235,44 @@ const processToolCalls = async (toolCalls, apiKey, model, userId, modelsConfig =
             
             switch (funcName) {
                 case 'swarm_delegate': {
-                    const tasks = args.tasks || args.task || [];
-                    const taskArray = Array.isArray(tasks) ? tasks : [tasks];
+                    // Suporta formato simplificado (task1, task2...) e formato array
+                    let taskArray = [];
+                    
+                    // Formato simplificado: task1, task2, task3...
+                    if (args.task1 || args.task2 || args.task3) {
+                        for (let i = 1; i <= 10; i++) {
+                            const taskKey = `task${i}`;
+                            if (args[taskKey]) {
+                                taskArray.push({
+                                    id: taskKey,
+                                    instruction: args[taskKey]
+                                });
+                            }
+                        }
+                    }
+                    // Formato array (compatibilidade)
+                    else if (args.tasks) {
+                        const tasks = Array.isArray(args.tasks) ? args.tasks : [args.tasks];
+                        taskArray = tasks.map((t, i) => ({
+                            id: t.id || `task_${i + 1}`,
+                            instruction: t.instruction || t.task || t.prompt || String(t)
+                        }));
+                    }
+                    // Formato string única
+                    else if (args.task) {
+                        taskArray = [{ id: 'task_1', instruction: args.task }];
+                    }
                     
                     if (taskArray.length === 0) {
-                        result = { error: "Nenhuma tarefa fornecida" };
+                        result = { error: "Nenhuma tarefa fornecida. Use task1, task2, etc." };
                         break;
                     }
                     
                     const normalizedTasks = taskArray.map((t, i) => ({
                         id: t.id || `task_${i + 1}`,
-                        instruction: t.instruction || t.task || t.prompt || String(t),
-                        context: t.context || t.data || '',
-                        output_format: t.output_format || t.format || ''
+                        instruction: t.instruction || '',
+                        context: t.context || '',
+                        output_format: t.output_format || ''
                     }));
                     
                     const taskPromises = normalizedTasks.map(task => executeSwarmAgent(apiKey, task, model));
@@ -1897,27 +1902,17 @@ Use as ferramentas quando apropriado, mas esteja ciente de que nem todas podem f
 
 Você tem acesso a um poderoso conjunto de ferramentas. Use-as quando necessário:
 
-### 🔄 SISTEMA SWARM (Agentes Paralelos) - MUITO IMPORTANTE!
-- **swarm_delegate**: Delega tarefas para múltiplos agentes IA secundários que trabalham EM PARALELO.
+### 🔄 SISTEMA SWARM (Agentes Paralelos)
+- **swarm_delegate**: Executa múltiplas tarefas em PARALELO usando agentes IA.
 
-**QUANDO USAR SWARM:**
-- Quando o usuário pedir para fazer MÚLTIPLAS coisas ao mesmo tempo
-- Quando precisar analisar dados de diferentes perspectivas
-- Quando quiser comparar informações de fontes diferentes
-- Quando precisar processar muita informação rapidamente
-- Quando o usuário mencionar "paralelo", "simultâneo", "ao mesmo tempo", "swarm", "agentes"
+**COMO USAR SWARM:**
+Use parâmetros simples: task1, task2, task3, etc.
+Exemplo: swarm_delegate(task1="Pesquise Python", task2="Pesquise JavaScript", task3="Pesquise Rust")
 
-**EXEMPLO DE USO DO SWARM:**
-Se o usuário pedir "pesquise sobre Python, JavaScript e Rust", você pode:
-\`\`\`json
-{
-  "tasks": [
-    {"id": "python", "instruction": "Pesquise sobre a linguagem Python, suas vantagens e casos de uso"},
-    {"id": "javascript", "instruction": "Pesquise sobre JavaScript, suas vantagens e casos de uso"},
-    {"id": "rust", "instruction": "Pesquise sobre Rust, suas vantagens e casos de uso"}
-  ]
-}
-\`\`\`
+**QUANDO USAR:**
+- Pesquisar múltiplos tópicos ao mesmo tempo
+- Comparar diferentes assuntos
+- Analisar dados de diferentes perspectivas
 
 ### 🎨 GERAÇÃO DE MÍDIA
 - **generate_image**: Gera imagens com base em descrições (DALL-E, Stable Diffusion, etc.)
