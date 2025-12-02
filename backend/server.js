@@ -119,6 +119,113 @@ const GlobalConfig = require('./models/GlobalConfig');
 const PageContent = require('./models/PageContent');
 const ModelUsage = require('./models/ModelUsage');
 
+// ============ SISTEMA DE AUTO-OCULTAÇÃO DE MODELOS COM ERRO ============
+
+// Classifica o tipo de erro
+function classifyError(errorMessage) {
+    const msg = (errorMessage || '').toLowerCase();
+    
+    // Rate limit - NÃO auto-ocultar
+    if (msg.includes('rate limit') || msg.includes('rate_limit') || msg.includes('too many requests') || 
+        msg.includes('quota') || msg.includes('limit exceeded') || msg.includes('429')) {
+        return 'rate_limit';
+    }
+    
+    // Erro de autenticação
+    if (msg.includes('unauthorized') || msg.includes('invalid api key') || msg.includes('authentication') ||
+        msg.includes('401') || msg.includes('403') || msg.includes('forbidden')) {
+        return 'auth';
+    }
+    
+    // Erro de rede/timeout
+    if (msg.includes('timeout') || msg.includes('network') || msg.includes('econnrefused') ||
+        msg.includes('enotfound') || msg.includes('socket') || msg.includes('connection')) {
+        return 'network';
+    }
+    
+    // Erro do modelo (modelo não existe, não suportado, etc)
+    if (msg.includes('model not found') || msg.includes('model does not exist') || 
+        msg.includes('not supported') || msg.includes('invalid model') || msg.includes('unknown model') ||
+        msg.includes('model_not_found') || msg.includes('does not support') || msg.includes('deprecated')) {
+        return 'model_error';
+    }
+    
+    return 'other';
+}
+
+// Auto-oculta modelo se tiver muitos erros (exceto rate_limit)
+async function checkAndAutoHideModel(modelId, provider, errorType) {
+    // Não auto-ocultar por rate_limit ou network (são temporários)
+    if (errorType === 'rate_limit' || errorType === 'network') {
+        return false;
+    }
+    
+    try {
+        await connectDB();
+        
+        // Conta erros recentes (últimas 24h) que não são rate_limit
+        const recentErrors = await ModelUsage.countDocuments({
+            modelId,
+            provider,
+            success: false,
+            errorType: { $nin: ['rate_limit', 'network'] },
+            timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        });
+        
+        // Se tiver 3+ erros do tipo model_error ou auth, auto-oculta
+        if (recentErrors >= 3) {
+            const key = 'HIDDEN_MODELS';
+            let config = await GlobalConfig.findOne({ key });
+            let hiddenModels = config?.value || [];
+            
+            const modelKey = `${provider}:${modelId}`;
+            if (!hiddenModels.includes(modelKey)) {
+                hiddenModels.push(modelKey);
+                await GlobalConfig.findOneAndUpdate(
+                    { key },
+                    { key, value: hiddenModels, updatedAt: new Date() },
+                    { upsert: true }
+                );
+                console.log(`[AUTO-HIDE] Modelo ${modelKey} ocultado automaticamente após ${recentErrors} erros`);
+                
+                // Limpa caches
+                g4fModelsCache = { data: null, lastFetch: 0 };
+                
+                return true;
+            }
+        }
+    } catch (e) {
+        console.error('Erro ao verificar auto-hide:', e.message);
+    }
+    return false;
+}
+
+// Rastreia uso de modelo (sucesso ou erro)
+async function trackModelUsage(modelId, provider, userId, username, success, tokens = 0, errorMessage = null) {
+    try {
+        const errorType = success ? null : classifyError(errorMessage);
+        
+        await new ModelUsage({
+            modelId,
+            provider,
+            userId,
+            username,
+            tokens,
+            success,
+            error: errorMessage,
+            errorType,
+            timestamp: new Date()
+        }).save();
+        
+        // Se foi erro, verifica se deve auto-ocultar
+        if (!success && errorType) {
+            await checkAndAutoHideModel(modelId, provider, errorType);
+        }
+    } catch (e) {
+        console.error('Erro ao rastrear uso:', e.message);
+    }
+}
+
 const execPromise = util.promisify(exec);
 const app = express();
 
@@ -525,17 +632,27 @@ app.get('/api/models/g4f', async (req, res) => {
         }
         
         if (allModels.length > 0) {
-            g4fModelsCache = { data: allModels, lastFetch: now };
+            // Buscar modelos ocultos globalmente
+            await connectDB();
+            const hiddenGlobalConfig = await GlobalConfig.findOne({ key: 'HIDDEN_MODELS' });
+            const globalHiddenModels = hiddenGlobalConfig?.value || [];
+            
+            // Filtrar modelos ocultos (formato: "provider:modelId")
+            const filteredModels = allModels.filter(m => {
+                const modelKey = `${m.provider}:${m.id}`;
+                return !globalHiddenModels.includes(modelKey);
+            });
+            
+            g4fModelsCache = { data: filteredModels, lastFetch: now };
             
             // Salva no MongoDB para persistência
-            await connectDB();
             await mongoose.connection.db.collection('g4f_cache').updateOne(
                 { _id: 'g4f_data' },
-                { $set: { models: allModels, updated_at: new Date() } },
+                { $set: { models: filteredModels, updated_at: new Date() } },
                 { upsert: true }
             );
             
-            return res.json(allModels);
+            return res.json(filteredModels);
         }
     } catch (e) {
         console.error('Erro ao buscar modelos g4f:', e.message);
@@ -1006,16 +1123,9 @@ app.post('/api/chat', auth, chatLimiter, async (req, res) => {
             // Incrementa uso e salva histórico
             User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
             
-            // Rastreia uso do modelo (para estatísticas Groq)
+            // Rastreia uso do modelo (sucesso)
             if (msg._provider) {
-                new ModelUsage({
-                    modelId: model,
-                    provider: msg._provider,
-                    userId: req.user._id,
-                    username: req.user.username,
-                    tokens: msg._tokens || 0,
-                    timestamp: new Date()
-                }).save().catch(err => console.error('Erro ao rastrear uso:', err));
+                trackModelUsage(model, msg._provider, req.user._id, req.user.username, true, msg._tokens || 0);
             }
             
             if (chatId) {
@@ -1032,6 +1142,11 @@ app.post('/api/chat', auth, chatLimiter, async (req, res) => {
             return;
         } catch (e) {
             console.error('Erro G4F:', e.message);
+            
+            // Rastreia erro do modelo
+            const providerFromModel = model.includes('/') ? model.split('/')[0] : 'g4f';
+            trackModelUsage(model, providerFromModel, req.user._id, req.user.username, false, 0, e.message);
+            
             return res.status(500).json({ error: e.message });
         }
     }
@@ -3222,6 +3337,304 @@ app.get('/api/admin/groq/hidden', auth, adminOnly, async (req, res) => {
         await connectDB();
         const config = await GlobalConfig.findOne({ key: 'GROQ_HIDDEN_MODELS' });
         res.json(config?.value || []);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ============ ADMIN - GERENCIAMENTO GLOBAL DE MODELOS ============
+
+// Estatísticas de uso de TODOS os modelos (não só Groq)
+app.get('/api/admin/models/stats', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        
+        const { period = '7d', provider } = req.query;
+        const periodMs = {
+            '24h': 24 * 60 * 60 * 1000,
+            '7d': 7 * 24 * 60 * 60 * 1000,
+            '30d': 30 * 24 * 60 * 60 * 1000,
+            'all': 365 * 24 * 60 * 60 * 1000
+        };
+        
+        const startDate = new Date(Date.now() - (periodMs[period] || periodMs['7d']));
+        const matchFilter = { timestamp: { $gte: startDate } };
+        if (provider) matchFilter.provider = provider;
+        
+        // Uso por modelo (todos os provedores)
+        const modelUsage = await ModelUsage.aggregate([
+            { $match: matchFilter },
+            { $group: { 
+                _id: { modelId: '$modelId', provider: '$provider' }, 
+                count: { $sum: 1 },
+                successCount: { $sum: { $cond: ['$success', 1, 0] } },
+                errorCount: { $sum: { $cond: ['$success', 0, 1] } },
+                tokens: { $sum: '$tokens' },
+                users: { $addToSet: '$userId' }
+            }},
+            { $project: { 
+                modelId: '$_id.modelId',
+                provider: '$_id.provider',
+                count: 1, 
+                successCount: 1,
+                errorCount: 1,
+                successRate: { $multiply: [{ $divide: ['$successCount', { $max: ['$count', 1] }] }, 100] },
+                tokens: 1, 
+                uniqueUsers: { $size: '$users' }
+            }},
+            { $sort: { count: -1 } }
+        ]);
+        
+        // Uso por provedor
+        const providerUsage = await ModelUsage.aggregate([
+            { $match: matchFilter },
+            { $group: { 
+                _id: '$provider', 
+                count: { $sum: 1 },
+                successCount: { $sum: { $cond: ['$success', 1, 0] } },
+                errorCount: { $sum: { $cond: ['$success', 0, 1] } },
+                tokens: { $sum: '$tokens' },
+                users: { $addToSet: '$userId' },
+                models: { $addToSet: '$modelId' }
+            }},
+            { $project: { 
+                provider: '$_id',
+                count: 1,
+                successCount: 1,
+                errorCount: 1,
+                successRate: { $multiply: [{ $divide: ['$successCount', { $max: ['$count', 1] }] }, 100] },
+                tokens: 1, 
+                uniqueUsers: { $size: '$users' },
+                uniqueModels: { $size: '$models' }
+            }},
+            { $sort: { count: -1 } }
+        ]);
+        
+        // Ranking geral de usuários (todos os provedores)
+        const topUsersGeneral = await ModelUsage.aggregate([
+            { $match: matchFilter },
+            { $group: { 
+                _id: { userId: '$userId', username: '$username' },
+                count: { $sum: 1 },
+                tokens: { $sum: '$tokens' },
+                models: { $addToSet: '$modelId' },
+                providers: { $addToSet: '$provider' }
+            }},
+            { $project: {
+                userId: '$_id.userId',
+                username: '$_id.username',
+                count: 1,
+                tokens: 1,
+                modelsUsed: { $size: '$models' },
+                providersUsed: { $size: '$providers' }
+            }},
+            { $sort: { count: -1 } },
+            { $limit: 20 }
+        ]);
+        
+        // Total geral
+        const totalUsage = await ModelUsage.aggregate([
+            { $match: matchFilter },
+            { $group: { 
+                _id: null,
+                totalRequests: { $sum: 1 },
+                successCount: { $sum: { $cond: ['$success', 1, 0] } },
+                errorCount: { $sum: { $cond: ['$success', 0, 1] } },
+                totalTokens: { $sum: '$tokens' },
+                uniqueUsers: { $addToSet: '$userId' },
+                uniqueModels: { $addToSet: '$modelId' },
+                uniqueProviders: { $addToSet: '$provider' }
+            }},
+            { $project: {
+                totalRequests: 1,
+                successCount: 1,
+                errorCount: 1,
+                successRate: { $multiply: [{ $divide: ['$successCount', { $max: ['$totalRequests', 1] }] }, 100] },
+                totalTokens: 1,
+                uniqueUsers: { $size: '$uniqueUsers' },
+                uniqueModels: { $size: '$uniqueModels' },
+                uniqueProviders: { $size: '$uniqueProviders' }
+            }}
+        ]);
+        
+        // Erros recentes (para diagnóstico)
+        const recentErrors = await ModelUsage.find({
+            ...matchFilter,
+            success: false
+        })
+        .sort({ timestamp: -1 })
+        .limit(50)
+        .select('modelId provider error errorType timestamp username');
+        
+        // Modelos auto-ocultados (com muitos erros)
+        const autoHiddenModels = await ModelUsage.aggregate([
+            { $match: { success: false, errorType: { $nin: ['rate_limit', 'network'] }, timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } },
+            { $group: {
+                _id: { modelId: '$modelId', provider: '$provider' },
+                errorCount: { $sum: 1 },
+                lastError: { $last: '$error' },
+                lastErrorType: { $last: '$errorType' }
+            }},
+            { $match: { errorCount: { $gte: 3 } } },
+            { $sort: { errorCount: -1 } }
+        ]);
+        
+        res.json({
+            period,
+            total: totalUsage[0] || { totalRequests: 0, successCount: 0, errorCount: 0, totalTokens: 0, uniqueUsers: 0, uniqueModels: 0, uniqueProviders: 0 },
+            modelUsage,
+            providerUsage,
+            topUsersGeneral,
+            recentErrors,
+            autoHiddenModels
+        });
+        
+    } catch (e) {
+        console.error('Erro ao buscar stats de modelos:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Ocultar/mostrar modelos (global - todos os provedores)
+app.post('/api/admin/models/toggle-visibility', auth, adminOnly, async (req, res) => {
+    try {
+        const { modelId, provider, hidden } = req.body;
+        
+        if (!modelId || !provider) {
+            return res.status(400).json({ error: 'modelId e provider são obrigatórios' });
+        }
+        
+        await connectDB();
+        
+        const modelKey = `${provider}:${modelId}`;
+        
+        let config = await GlobalConfig.findOne({ key: 'HIDDEN_MODELS' });
+        let hiddenModels = config?.value || [];
+        
+        if (hidden) {
+            if (!hiddenModels.includes(modelKey)) {
+                hiddenModels.push(modelKey);
+            }
+        } else {
+            hiddenModels = hiddenModels.filter(key => key !== modelKey);
+        }
+        
+        await GlobalConfig.findOneAndUpdate(
+            { key: 'HIDDEN_MODELS' },
+            { key: 'HIDDEN_MODELS', value: hiddenModels, updatedAt: new Date() },
+            { upsert: true }
+        );
+        
+        // Limpar cache de modelos
+        g4fModelsCache = { data: null, lastFetch: 0 };
+        
+        res.json({ success: true, hiddenModels });
+        
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Buscar modelos ocultos (global)
+app.get('/api/admin/models/hidden', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const config = await GlobalConfig.findOne({ key: 'HIDDEN_MODELS' });
+        res.json(config?.value || []);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Reativar modelo (remover da lista de ocultos)
+app.post('/api/admin/models/unhide', auth, adminOnly, async (req, res) => {
+    try {
+        const { modelKey } = req.body; // formato: "provider:modelId"
+        
+        if (!modelKey) {
+            return res.status(400).json({ error: 'modelKey é obrigatório (formato: provider:modelId)' });
+        }
+        
+        await connectDB();
+        
+        let config = await GlobalConfig.findOne({ key: 'HIDDEN_MODELS' });
+        let hiddenModels = config?.value || [];
+        
+        hiddenModels = hiddenModels.filter(key => key !== modelKey);
+        
+        await GlobalConfig.findOneAndUpdate(
+            { key: 'HIDDEN_MODELS' },
+            { key: 'HIDDEN_MODELS', value: hiddenModels, updatedAt: new Date() },
+            { upsert: true }
+        );
+        
+        // Limpar cache de modelos
+        g4fModelsCache = { data: null, lastFetch: 0 };
+        
+        res.json({ success: true, hiddenModels, message: `Modelo ${modelKey} reativado com sucesso` });
+        
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Listar todos os modelos com status (para admin)
+app.get('/api/admin/models/all', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        
+        // Buscar modelos ocultos
+        const hiddenConfig = await GlobalConfig.findOne({ key: 'HIDDEN_MODELS' });
+        const hiddenModels = hiddenConfig?.value || [];
+        
+        // Buscar estatísticas de uso (últimas 24h)
+        const usageStats = await ModelUsage.aggregate([
+            { $match: { timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } },
+            { $group: {
+                _id: { modelId: '$modelId', provider: '$provider' },
+                count: { $sum: 1 },
+                successCount: { $sum: { $cond: ['$success', 1, 0] } },
+                errorCount: { $sum: { $cond: ['$success', 0, 1] } },
+                lastUsed: { $max: '$timestamp' },
+                lastError: { $last: { $cond: ['$success', null, '$error'] } }
+            }}
+        ]);
+        
+        // Mapear estatísticas
+        const statsMap = {};
+        usageStats.forEach(stat => {
+            const key = `${stat._id.provider}:${stat._id.modelId}`;
+            statsMap[key] = {
+                count: stat.count,
+                successCount: stat.successCount,
+                errorCount: stat.errorCount,
+                successRate: stat.count > 0 ? (stat.successCount / stat.count * 100).toFixed(1) : 100,
+                lastUsed: stat.lastUsed,
+                lastError: stat.lastError
+            };
+        });
+        
+        // Buscar modelos do cache ou API
+        const models = g4fModelsCache.data || [];
+        
+        // Enriquecer modelos com status
+        const enrichedModels = models.map(m => {
+            const modelKey = `${m.provider}:${m.id}`;
+            const stats = statsMap[modelKey] || { count: 0, successCount: 0, errorCount: 0, successRate: 100 };
+            return {
+                ...m,
+                hidden: hiddenModels.includes(modelKey),
+                stats
+            };
+        });
+        
+        res.json({
+            models: enrichedModels,
+            hiddenModels,
+            totalModels: models.length,
+            hiddenCount: hiddenModels.length
+        });
+        
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

@@ -56,6 +56,15 @@ export default function AdminDashboard() {
   const [loadingGroq, setLoadingGroq] = useState(false);
   const [groqActiveTab, setGroqActiveTab] = useState('models');
   
+  // Estados do painel de gerenciamento global de modelos
+  const [showModelsPanel, setShowModelsPanel] = useState(false);
+  const [allModelsStats, setAllModelsStats] = useState(null);
+  const [hiddenModels, setHiddenModels] = useState([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsActiveTab, setModelsActiveTab] = useState('stats');
+  const [modelsFilter, setModelsFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState('all');
+  
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -101,6 +110,57 @@ export default function AdminDashboard() {
       ));
     } catch (err) {
       alert('Erro ao alterar visibilidade: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // Carregar dados do painel global de modelos
+  const loadModelsData = async () => {
+    setLoadingModels(true);
+    try {
+      const [statsRes, hiddenRes] = await Promise.all([
+        axios.get(API_URL + '/admin/models/stats?period=7d', { headers: { Authorization: 'Bearer ' + token } }),
+        axios.get(API_URL + '/admin/models/hidden', { headers: { Authorization: 'Bearer ' + token } })
+      ]);
+      
+      setAllModelsStats(statsRes.data || {});
+      setHiddenModels(hiddenRes.data || []);
+    } catch (err) {
+      console.error('Erro ao carregar dados de modelos:', err);
+    }
+    setLoadingModels(false);
+  };
+
+  // Toggle visibilidade de modelo (global)
+  const toggleModelVisibility = async (modelId, provider, currentlyHidden) => {
+    try {
+      await axios.post(
+        API_URL + '/admin/models/toggle-visibility',
+        { modelId, provider, hidden: !currentlyHidden },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      
+      const modelKey = `${provider}:${modelId}`;
+      if (currentlyHidden) {
+        setHiddenModels(prev => prev.filter(k => k !== modelKey));
+      } else {
+        setHiddenModels(prev => [...prev, modelKey]);
+      }
+    } catch (err) {
+      alert('Erro ao alterar visibilidade: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // Reativar modelo (remover da lista de ocultos)
+  const unhideModel = async (modelKey) => {
+    try {
+      await axios.post(
+        API_URL + '/admin/models/unhide',
+        { modelKey },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      setHiddenModels(prev => prev.filter(k => k !== modelKey));
+    } catch (err) {
+      alert('Erro ao reativar modelo: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -436,6 +496,13 @@ export default function AdminDashboard() {
             className="w-full bg-orange-600 hover:bg-orange-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
             <Zap size={18}/> Groq Analytics
+          </button>
+          
+          <button 
+            onClick={() => { setShowModelsPanel(true); loadModelsData(); }}
+            className="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Cpu size={18}/> Gerenciar Modelos
           </button>
         </div>
 
@@ -1305,6 +1372,408 @@ export default function AdminDashboard() {
                           </div>
                         )}
                       </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gerenciamento Global de Modelos */}
+      {showModelsPanel && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <Cpu className="text-purple-500"/> Gerenciamento de Modelos
+              </h2>
+              <button onClick={() => setShowModelsPanel(false)}>
+                <X size={24}/>
+              </button>
+            </div>
+            
+            {/* Tabs */}
+            <div className="flex border-b border-gray-700">
+              {[
+                { id: 'stats', label: 'Estatísticas', icon: BarChart3 },
+                { id: 'providers', label: 'Por Provedor', icon: Database },
+                { id: 'userRanking', label: 'Ranking Usuários', icon: Trophy },
+                { id: 'hidden', label: 'Modelos Ocultos', icon: EyeOff },
+                { id: 'errors', label: 'Erros Recentes', icon: AlertTriangle }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setModelsActiveTab(tab.id)}
+                  className={`flex-1 p-3 flex items-center justify-center gap-2 transition text-sm ${
+                    modelsActiveTab === tab.id 
+                      ? 'bg-purple-600 text-white' 
+                      : 'hover:bg-gray-700 text-gray-400'
+                  }`}
+                >
+                  <tab.icon size={16}/> {tab.label}
+                </button>
+              ))}
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {loadingModels ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={32}/>
+                  <p>Carregando...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Tab: Estatísticas Gerais */}
+                  {modelsActiveTab === 'stats' && allModelsStats && (
+                    <div className="space-y-6">
+                      {/* Cards de resumo */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-gray-900 p-4 rounded-lg border border-gray-600">
+                          <p className="text-xs text-gray-500 uppercase">Total Requisições</p>
+                          <p className="text-2xl font-bold text-purple-400">
+                            {allModelsStats.total?.totalRequests?.toLocaleString() || 0}
+                          </p>
+                        </div>
+                        <div className="bg-gray-900 p-4 rounded-lg border border-gray-600">
+                          <p className="text-xs text-gray-500 uppercase">Taxa de Sucesso</p>
+                          <p className="text-2xl font-bold text-green-400">
+                            {allModelsStats.total?.successRate?.toFixed(1) || 100}%
+                          </p>
+                        </div>
+                        <div className="bg-gray-900 p-4 rounded-lg border border-gray-600">
+                          <p className="text-xs text-gray-500 uppercase">Modelos Únicos</p>
+                          <p className="text-2xl font-bold text-blue-400">
+                            {allModelsStats.total?.uniqueModels || 0}
+                          </p>
+                        </div>
+                        <div className="bg-gray-900 p-4 rounded-lg border border-gray-600">
+                          <p className="text-xs text-gray-500 uppercase">Usuários Ativos</p>
+                          <p className="text-2xl font-bold text-orange-400">
+                            {allModelsStats.total?.uniqueUsers || 0}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Top Modelos */}
+                      <div>
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-lg font-semibold">Top Modelos (7 dias)</h3>
+                          <button 
+                            onClick={loadModelsData}
+                            className="text-sm bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded flex items-center gap-1"
+                          >
+                            <RefreshCw size={14}/> Atualizar
+                          </button>
+                        </div>
+                        
+                        <div className="grid gap-3">
+                          {(allModelsStats.modelUsage || []).slice(0, 10).map((item, index) => {
+                            const maxCount = allModelsStats.modelUsage?.[0]?.count || 1;
+                            const percentage = (item.count / maxCount) * 100;
+                            const modelKey = `${item.provider}:${item.modelId}`;
+                            const isHidden = hiddenModels.includes(modelKey);
+                            
+                            return (
+                              <div 
+                                key={modelKey}
+                                className={`p-4 rounded-lg border ${
+                                  isHidden 
+                                    ? 'bg-gray-900/50 border-gray-700 opacity-60' 
+                                    : 'bg-gray-900 border-gray-600'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    {index === 0 && <span className="text-yellow-400">🥇</span>}
+                                    {index === 1 && <span className="text-gray-300">🥈</span>}
+                                    {index === 2 && <span className="text-orange-400">🥉</span>}
+                                    <span className="font-semibold">{item.modelId}</span>
+                                    <span className="text-xs bg-purple-600/30 text-purple-300 px-2 py-0.5 rounded">
+                                      {item.provider}
+                                    </span>
+                                    {isHidden && (
+                                      <span className="text-xs bg-red-600/50 px-2 py-0.5 rounded">Oculto</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-purple-400 font-bold">
+                                      {item.count.toLocaleString()} usos
+                                    </span>
+                                    <button
+                                      onClick={() => toggleModelVisibility(item.modelId, item.provider, isHidden)}
+                                      className={`p-2 rounded transition ${
+                                        isHidden 
+                                          ? 'bg-green-600 hover:bg-green-500' 
+                                          : 'bg-red-600 hover:bg-red-500'
+                                      }`}
+                                      title={isHidden ? 'Mostrar' : 'Ocultar'}
+                                    >
+                                      {isHidden ? <Eye size={14}/> : <EyeOff size={14}/>}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="w-full bg-gray-700 rounded-full h-2">
+                                  <div 
+                                    className="bg-purple-500 h-2 rounded-full transition-all"
+                                    style={{ width: `${percentage}%` }}
+                                  />
+                                </div>
+                                <div className="flex justify-between mt-1 text-xs text-gray-500">
+                                  <span>{item.uniqueUsers || 0} usuários</span>
+                                  <span className={item.successRate >= 90 ? 'text-green-400' : item.successRate >= 70 ? 'text-yellow-400' : 'text-red-400'}>
+                                    {item.successRate?.toFixed(1) || 100}% sucesso
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Tab: Por Provedor */}
+                  {modelsActiveTab === 'providers' && allModelsStats && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">Uso por Provedor</h3>
+                      
+                      <div className="grid gap-4">
+                        {(allModelsStats.providerUsage || []).map((provider, index) => {
+                          const maxCount = allModelsStats.providerUsage?.[0]?.count || 1;
+                          const percentage = (provider.count / maxCount) * 100;
+                          
+                          const providerColors = {
+                            'groq': 'bg-orange-600',
+                            'pollinations-ai': 'bg-green-600',
+                            'deepinfra': 'bg-blue-600',
+                            'cloudflare': 'bg-yellow-600',
+                            'cerebras': 'bg-pink-600'
+                          };
+                          
+                          return (
+                            <div 
+                              key={provider.provider}
+                              className="p-4 bg-gray-900 rounded-lg border border-gray-600"
+                            >
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <Database className="text-purple-400"/>
+                                  <span className="font-semibold text-lg capitalize">{provider.provider}</span>
+                                </div>
+                                <span className="text-2xl font-bold text-purple-400">
+                                  {provider.count.toLocaleString()}
+                                </span>
+                              </div>
+                              
+                              <div className="w-full bg-gray-700 rounded-full h-3 mb-3">
+                                <div 
+                                  className={`${providerColors[provider.provider] || 'bg-purple-500'} h-3 rounded-full transition-all`}
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                              
+                              <div className="grid grid-cols-4 gap-2 text-xs">
+                                <div className="text-center">
+                                  <p className="text-gray-500">Modelos</p>
+                                  <p className="font-semibold text-blue-400">{provider.uniqueModels}</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-gray-500">Usuários</p>
+                                  <p className="font-semibold text-orange-400">{provider.uniqueUsers}</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-gray-500">Sucesso</p>
+                                  <p className={`font-semibold ${
+                                    provider.successRate >= 90 ? 'text-green-400' : 
+                                    provider.successRate >= 70 ? 'text-yellow-400' : 'text-red-400'
+                                  }`}>{provider.successRate?.toFixed(1)}%</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-gray-500">Erros</p>
+                                  <p className="font-semibold text-red-400">{provider.errorCount}</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Tab: Ranking de Usuários */}
+                  {modelsActiveTab === 'userRanking' && allModelsStats && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">Ranking Geral de Usuários</h3>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="text-left border-b border-gray-700">
+                              <th className="p-3 text-gray-400">#</th>
+                              <th className="p-3 text-gray-400">Usuário</th>
+                              <th className="p-3 text-gray-400">Requisições</th>
+                              <th className="p-3 text-gray-400">Modelos</th>
+                              <th className="p-3 text-gray-400">Provedores</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(allModelsStats.topUsersGeneral || []).map((user, index) => (
+                              <tr 
+                                key={user.userId || index}
+                                className={`border-b border-gray-800 ${
+                                  index < 3 ? 'bg-purple-900/20' : ''
+                                }`}
+                              >
+                                <td className="p-3">
+                                  {index === 0 && <span className="text-yellow-400 text-xl">🥇</span>}
+                                  {index === 1 && <span className="text-gray-300 text-xl">🥈</span>}
+                                  {index === 2 && <span className="text-orange-400 text-xl">🥉</span>}
+                                  {index > 2 && <span className="text-gray-500">{index + 1}</span>}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <User size={16} className="text-gray-400"/>
+                                    <span className="font-medium">{user.username || 'Usuário'}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className="text-purple-400 font-bold">
+                                    {user.count.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-gray-400">{user.modelsUsed}</td>
+                                <td className="p-3 text-gray-400">{user.providersUsed}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Tab: Modelos Ocultos */}
+                  {modelsActiveTab === 'hidden' && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">
+                        Modelos Ocultos ({hiddenModels.length})
+                      </h3>
+                      
+                      {hiddenModels.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <EyeOff size={48} className="mx-auto mb-4 opacity-50"/>
+                          <p>Nenhum modelo oculto</p>
+                        </div>
+                      ) : (
+                        <div className="grid gap-3">
+                          {hiddenModels.map(modelKey => {
+                            const [provider, ...modelIdParts] = modelKey.split(':');
+                            const modelId = modelIdParts.join(':');
+                            
+                            return (
+                              <div 
+                                key={modelKey}
+                                className="p-4 bg-gray-900 rounded-lg border border-red-600/30 flex items-center justify-between"
+                              >
+                                <div>
+                                  <span className="font-semibold">{modelId}</span>
+                                  <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded ml-2">
+                                    {provider}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => unhideModel(modelKey)}
+                                  className="bg-green-600 hover:bg-green-500 p-2 rounded flex items-center gap-2 transition"
+                                >
+                                  <Eye size={16}/> Reativar
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      
+                      {/* Modelos auto-ocultados */}
+                      {allModelsStats?.autoHiddenModels?.length > 0 && (
+                        <div className="mt-8">
+                          <h4 className="text-md font-semibold mb-3 flex items-center gap-2 text-yellow-400">
+                            <AlertTriangle size={18}/> Modelos Auto-Ocultados (muitos erros)
+                          </h4>
+                          <div className="grid gap-3">
+                            {allModelsStats.autoHiddenModels.map((item, index) => (
+                              <div 
+                                key={index}
+                                className="p-4 bg-yellow-900/20 rounded-lg border border-yellow-600/30"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <span className="font-semibold">{item._id.modelId}</span>
+                                    <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded ml-2">
+                                      {item._id.provider}
+                                    </span>
+                                  </div>
+                                  <span className="text-red-400 font-bold">
+                                    {item.errorCount} erros
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                  Último erro: {item.lastError?.substring(0, 100)}...
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Tab: Erros Recentes */}
+                  {modelsActiveTab === 'errors' && allModelsStats && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">Erros Recentes</h3>
+                      
+                      {(allModelsStats.recentErrors || []).length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <AlertTriangle size={48} className="mx-auto mb-4 opacity-50"/>
+                          <p>Nenhum erro registrado</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {(allModelsStats.recentErrors || []).map((err, index) => (
+                            <div 
+                              key={index}
+                              className="p-4 bg-gray-900 rounded-lg border border-red-600/30"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-semibold">{err.modelId}</span>
+                                    <span className="text-xs bg-gray-700 px-2 py-0.5 rounded">
+                                      {err.provider}
+                                    </span>
+                                    <span className={`text-xs px-2 py-0.5 rounded ${
+                                      err.errorType === 'rate_limit' ? 'bg-yellow-600/50 text-yellow-300' :
+                                      err.errorType === 'model_error' ? 'bg-red-600/50 text-red-300' :
+                                      err.errorType === 'auth' ? 'bg-orange-600/50 text-orange-300' :
+                                      'bg-gray-600/50 text-gray-300'
+                                    }`}>
+                                      {err.errorType || 'other'}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-red-400 mt-1">
+                                    {err.error?.substring(0, 150)}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-2">
+                                    Usuário: {err.username || 'Desconhecido'} • 
+                                    {new Date(err.timestamp).toLocaleString('pt-BR')}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
