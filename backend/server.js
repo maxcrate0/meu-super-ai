@@ -460,16 +460,54 @@ app.get('/api/models/g4f', async (req, res) => {
         // Obter key gratuita em: https://console.groq.com/keys
         const groqKey = await getGroqApiKey();
         if (groqKey) {
+            // Buscar modelos ocultos do banco
+            await connectDB();
+            const hiddenConfig = await GlobalConfig.findOne({ key: 'GROQ_HIDDEN_MODELS' });
+            const hiddenModels = hiddenConfig?.value || [];
+            
+            // Lista completa de modelos Groq disponíveis (atualizada conforme documentação oficial)
             const groqModels = [
-                { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq - Ultra Fast)', type: 'chat', speed: 'ultra-fast' },
-                { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B (Groq)', type: 'chat', speed: 'very-fast' },
+                // Llama 3.3/3.1 - Modelos principais
+                { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile (Groq)', type: 'chat', speed: 'ultra-fast' },
                 { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant (Groq)', type: 'chat', speed: 'instant' },
-                { id: 'gemma2-9b-it', name: 'Gemma 2 9B (Groq)', type: 'chat', speed: 'very-fast' },
-                { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B (Groq)', type: 'chat', speed: 'fast' },
+                
+                // Llama 4 - Novos modelos
+                { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick 17B (Groq)', type: 'chat', speed: 'ultra-fast' },
+                { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B (Groq)', type: 'chat', speed: 'ultra-fast' },
+                
+                // Llama Guard - Segurança
+                { id: 'meta-llama/llama-guard-4-12b', name: 'Llama Guard 4 12B (Groq)', type: 'moderation', speed: 'fast' },
+                
+                // Kimi K2 - Moonshot AI
+                { id: 'moonshotai/kimi-k2-instruct', name: 'Kimi K2 Instruct (Groq)', type: 'chat', speed: 'fast' },
+                
+                // GPT-OSS - Modelos OpenAI open source
+                { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B (Groq)', type: 'chat', speed: 'fast' },
+                { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (Groq)', type: 'chat', speed: 'very-fast' },
+                
+                // Qwen - Alibaba
+                { id: 'qwen/qwen3-32b', name: 'Qwen3 32B (Groq)', type: 'chat', speed: 'fast' },
+                
+                // Allam - Modelo árabe
+                { id: 'allam-2-7b', name: 'Allam 2 7B (Groq)', type: 'chat', speed: 'very-fast' },
+                
+                // Groq Compound - Modelo composto
+                { id: 'groq/compound', name: 'Groq Compound (Multi-Model)', type: 'chat', speed: 'fast' },
+                
+                // Whisper - Transcrição de áudio
+                { id: 'whisper-large-v3', name: 'Whisper Large V3 (Groq)', type: 'audio', speed: 'fast' },
+                { id: 'whisper-large-v3-turbo', name: 'Whisper Large V3 Turbo (Groq)', type: 'audio', speed: 'ultra-fast' },
+                
+                // PlayAI TTS - Text to Speech
+                { id: 'playai-tts', name: 'PlayAI TTS (Groq)', type: 'tts', speed: 'fast' },
             ];
-            groqModels.forEach(m => {
-                allModels.push({ ...m, provider: 'groq' });
-            });
+            
+            // Filtrar modelos ocultos
+            groqModels
+                .filter(m => !hiddenModels.includes(m.id))
+                .forEach(m => {
+                    allModels.push({ ...m, provider: 'groq' });
+                });
         }
         
         // Cerebras - Rápido (se tiver API key configurada)
