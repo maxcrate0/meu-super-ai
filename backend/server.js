@@ -534,6 +534,23 @@ app.get('/api/models/g4f', async (req, res) => {
             allModels.push({ ...m, provider: 'deepinfra' });
         });
         
+        // ============ G4F Python Server - Modelos que funcionam (testados!) ============
+        // Estes modelos usam o servidor G4F Python na Azure (gpt4free)
+        const g4fPythonModels = [
+            // Modelos que funcionam bem SEM API key
+            { id: 'g4f:auto', name: '⚡ G4F Auto (Automático)', type: 'chat', description: 'Escolhe automaticamente o melhor provider disponível' },
+            { id: 'g4f:ling-mini-2.0', name: '🦉 Ling Mini 2.0 (BAAI)', type: 'chat', description: 'Modelo chinês leve e rápido' },
+            { id: 'g4f:command-r-plus', name: '🧠 Command R+ (Cohere)', type: 'chat', description: 'Modelo Cohere avançado para raciocínio' },
+            { id: 'g4f:command-a-03-2025', name: '🧠 Command A 2025 (Cohere)', type: 'chat', description: 'Versão mais recente do Command' },
+            { id: 'g4f:gemini-2.0-flash', name: '✨ Gemini 2.0 Flash (Google)', type: 'chat', description: 'Gemini rápido via proxy' },
+            // Modelos de imagem G4F
+            { id: 'g4f:flux-dev', name: '🎨 Flux Dev (Black Forest Labs)', type: 'image', description: 'Geração de imagens Flux' },
+            { id: 'g4f:sd-3.5-large', name: '🎨 Stable Diffusion 3.5 Large', type: 'image', description: 'SD 3.5 Large via G4F' },
+        ];
+        g4fPythonModels.forEach(m => {
+            allModels.push({ ...m, provider: 'g4f-python' });
+        });
+        
         // Adicionar modelos do Cloudflare Worker (gratuitos!)
         const cloudflareModels = [
             // Modelos de texto grandes
@@ -1213,6 +1230,58 @@ const callGroq = async (model, messages) => {
     throw new Error('Resposta inválida do Groq');
 };
 
+// Handler para G4F Python Server (gpt4free em Python)
+const G4F_PYTHON_URL = process.env.G4F_API_URL || 'http://meu-super-ai-g4f.southcentralus.azurecontainer.io:8080';
+
+const callG4FPython = async (model, messages) => {
+    console.log(`[G4F Python] Chamando modelo: ${model}`);
+    
+    try {
+        const response = await axios.post(`${G4F_PYTHON_URL}/v1/chat/completions`, {
+            model: model,
+            messages: messages.map(m => ({
+                role: m.role,
+                content: m.content
+            }))
+        }, {
+            timeout: 120000, // 2 minutos
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.data?.choices?.[0]?.message) {
+            console.log(`[G4F Python] Sucesso! Provider: ${response.data.provider}`);
+            const msg = response.data.choices[0].message;
+            msg._provider = `g4f-python:${response.data.provider || 'unknown'}`;
+            msg._tokens = response.data.usage?.total_tokens || 0;
+            return msg;
+        }
+        
+        // Resposta direta do g4f
+        if (response.data?.content) {
+            return {
+                role: 'assistant',
+                content: response.data.content,
+                _provider: `g4f-python:${response.data.provider || 'unknown'}`,
+                _tokens: 0
+            };
+        }
+        
+        throw new Error('Resposta inválida do G4F Python');
+    } catch (e) {
+        // Log detalhado do erro
+        console.error(`[G4F Python] Erro:`, e.response?.data || e.message);
+        
+        // Se tiver mensagem de erro específica do servidor
+        if (e.response?.data?.detail) {
+            throw new Error(`G4F Python: ${e.response.data.detail}`);
+        }
+        
+        throw new Error(`G4F Python: ${e.message}`);
+    }
+};
+
 // Handler para Cerebras (API rápida)
 const callCerebras = async (model, messages) => {
     const g4f = await loadG4F();
@@ -1354,6 +1423,12 @@ const routeToProvider = async (provider, model, messages, apiKey = null) => {
 
 // Helper para chamada GPT4Free com fallback chain
 const callG4FWithFallback = async (model, messages) => {
+    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    if (model.startsWith('g4f:')) {
+        const g4fModel = model.replace('g4f:', '');
+        return await callG4FPython(g4fModel, messages);
+    }
+    
     const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
