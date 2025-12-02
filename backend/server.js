@@ -204,7 +204,7 @@ const connectDB = async () => {
             maxPoolSize: 50, // Aumentado para mais conexões simultâneas
             minPoolSize: 10, // Mantém conexões mínimas abertas
             maxIdleTimeMS: 30000, // Fecha conexões idle após 30s
-            retryWrites: true,
+            retryWrites: false, // Desabilitado para compatibilidade com Azure CosmosDB
             w: 'majority'
         });
         console.log('MongoDB Conectado (pool: 10-50)');
