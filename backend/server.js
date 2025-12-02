@@ -1942,6 +1942,27 @@ Se o usuário pedir "pesquise sobre Python, JavaScript e Rust", você pode:
 - **browser_console**: Executa JavaScript no console de um site
 - **network_monitor**: Monitora requisições de rede de uma página
 
+---
+
+## LISTA COMPLETA DE FERRAMENTAS (13 ferramentas):
+
+1. **swarm_delegate** - Delega tarefas para múltiplos agentes IA em PARALELO
+2. **generate_image** - Gera imagens a partir de descrições
+3. **generate_audio** - Gera áudio/fala/música
+4. **generate_video** - Gera vídeos curtos
+5. **create_custom_tool** - Cria ferramentas personalizadas
+6. **execute_custom_tool** - Executa ferramentas criadas
+7. **list_custom_tools** - Lista suas ferramentas
+8. **delete_custom_tool** - Remove ferramentas
+9. **execute_bash** - Executa comandos no terminal
+10. **web_search** - Pesquisa na web
+11. **web_scrape** - Extrai conteúdo de sites
+12. **http_request** - Faz requisições HTTP
+13. **browser_console** - Executa JS em sites
+14. **network_monitor** - Monitora requisições de rede
+
+---
+
 ### QUANDO USAR CADA FERRAMENTA:
 - Usuário quer gerar imagem → **generate_image**
 - Usuário quer gerar áudio/música → **generate_audio** 
