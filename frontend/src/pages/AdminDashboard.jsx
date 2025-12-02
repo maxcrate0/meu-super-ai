@@ -4,7 +4,7 @@ import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
   BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
-  Send, Mail, FileText, Layout, Database, Zap
+  Send, Mail, FileText, Layout, Database, Zap, Eye, EyeOff, TrendingUp, Trophy
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -47,6 +47,15 @@ export default function AdminDashboard() {
   const [savingSystemPrompt, setSavingSystemPrompt] = useState(false);
   const [activeApiTab, setActiveApiTab] = useState('openrouter');
   
+  // Estados do painel Groq
+  const [showGroqPanel, setShowGroqPanel] = useState(false);
+  const [groqModels, setGroqModels] = useState([]);
+  const [groqUsage, setGroqUsage] = useState([]);
+  const [groqUserRankings, setGroqUserRankings] = useState([]);
+  const [groqModelRankings, setGroqModelRankings] = useState([]);
+  const [loadingGroq, setLoadingGroq] = useState(false);
+  const [groqActiveTab, setGroqActiveTab] = useState('models');
+  
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -55,6 +64,57 @@ export default function AdminDashboard() {
     loadApiKeyConfig();
     loadModels();
   }, []);
+
+  // Carregar dados do Groq quando o painel for aberto
+  const loadGroqData = async () => {
+    setLoadingGroq(true);
+    try {
+      const [modelsRes, statsRes, limitsRes] = await Promise.all([
+        axios.get(API_URL + '/admin/groq/models', { headers: { Authorization: 'Bearer ' + token } }),
+        axios.get(API_URL + '/admin/groq/stats', { headers: { Authorization: 'Bearer ' + token } }),
+        axios.get(API_URL + '/admin/groq/limits', { headers: { Authorization: 'Bearer ' + token } })
+      ]);
+      
+      // Combinar modelos com limites
+      const limits = limitsRes.data?.models || {};
+      const modelsWithLimits = (modelsRes.data || []).map(m => ({
+        ...m,
+        limits: limits[m.id] ? {
+          requestsPerMinute: limits[m.id].rpm,
+          requestsPerDay: limits[m.id].rpd,
+          tokensPerMinute: limits[m.id].tpm,
+          tokensPerDay: limits[m.id].tpd
+        } : m.limits
+      }));
+      
+      setGroqModels(modelsWithLimits);
+      
+      // Estatísticas
+      const stats = statsRes.data || {};
+      setGroqUsage(stats.modelUsage || []);
+      setGroqUserRankings(stats.topUsersGeneral || []);
+      setGroqModelRankings(stats.modelUsage || []);
+    } catch (err) {
+      console.error('Erro ao carregar dados Groq:', err);
+    }
+    setLoadingGroq(false);
+  };
+
+  const toggleGroqModelVisibility = async (modelId, hidden) => {
+    try {
+      await axios.post(
+        API_URL + '/admin/groq/toggle-visibility',
+        { modelId, hidden: !hidden },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      // Atualiza localmente
+      setGroqModels(prev => prev.map(m => 
+        m.id === modelId ? { ...m, hidden: !hidden } : m
+      ));
+    } catch (err) {
+      alert('Erro ao alterar visibilidade: ' + (err.response?.data?.error || err.message));
+    }
+  };
 
   const loadUsers = async () => {
     setLoading(true);
@@ -382,6 +442,13 @@ export default function AdminDashboard() {
           >
             <Layout size={18}/> {t.contentEditor}
           </Link>
+          
+          <button 
+            onClick={() => { setShowGroqPanel(true); loadGroqData(); }}
+            className="w-full bg-orange-600 hover:bg-orange-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Zap size={18}/> Groq Analytics
+          </button>
         </div>
 
         {/* Users List */}
@@ -970,6 +1037,290 @@ export default function AdminDashboard() {
                   {savingSystemPrompt ? texts.loading : t.systemPromptModal.save}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Groq Analytics */}
+      {showGroqPanel && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <Zap className="text-orange-500"/> Groq Analytics
+              </h2>
+              <button onClick={() => setShowGroqPanel(false)}>
+                <X size={24}/>
+              </button>
+            </div>
+            
+            {/* Tabs */}
+            <div className="flex border-b border-gray-700">
+              {[
+                { id: 'models', label: 'Modelos', icon: Cpu },
+                { id: 'usage', label: 'Uso por Modelo', icon: BarChart3 },
+                { id: 'userRanking', label: 'Ranking Usuários', icon: Trophy },
+                { id: 'modelRanking', label: 'Ranking Modelos', icon: TrendingUp }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setGroqActiveTab(tab.id)}
+                  className={`flex-1 p-3 flex items-center justify-center gap-2 transition ${
+                    groqActiveTab === tab.id 
+                      ? 'bg-orange-600 text-white' 
+                      : 'hover:bg-gray-700 text-gray-400'
+                  }`}
+                >
+                  <tab.icon size={16}/> {tab.label}
+                </button>
+              ))}
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {loadingGroq ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={32}/>
+                  <p>Carregando...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Tab: Modelos */}
+                  {groqActiveTab === 'models' && (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold">Modelos Groq Disponíveis</h3>
+                        <button 
+                          onClick={loadGroqData}
+                          className="text-sm bg-orange-600 hover:bg-orange-500 px-3 py-1 rounded flex items-center gap-1"
+                        >
+                          <RefreshCw size={14}/> Atualizar
+                        </button>
+                      </div>
+                      
+                      <div className="grid gap-3">
+                        {groqModels.map(model => (
+                          <div 
+                            key={model.id}
+                            className={`p-4 rounded-lg border ${
+                              model.hidden 
+                                ? 'bg-gray-900/50 border-gray-700 opacity-60' 
+                                : 'bg-gray-900 border-gray-600'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold">{model.name || model.id}</span>
+                                  {model.hidden && (
+                                    <span className="text-xs bg-red-600/50 px-2 py-0.5 rounded">Oculto</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1 font-mono">{model.id}</p>
+                                
+                                {model.limits && (
+                                  <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                    <div className="bg-gray-800 p-2 rounded">
+                                      <span className="text-gray-500">RPM:</span>{' '}
+                                      <span className="text-orange-400 font-semibold">
+                                        {model.limits.requestsPerMinute?.toLocaleString() || 'N/A'}
+                                      </span>
+                                    </div>
+                                    <div className="bg-gray-800 p-2 rounded">
+                                      <span className="text-gray-500">RPD:</span>{' '}
+                                      <span className="text-orange-400 font-semibold">
+                                        {model.limits.requestsPerDay?.toLocaleString() || 'N/A'}
+                                      </span>
+                                    </div>
+                                    <div className="bg-gray-800 p-2 rounded">
+                                      <span className="text-gray-500">TPM:</span>{' '}
+                                      <span className="text-blue-400 font-semibold">
+                                        {model.limits.tokensPerMinute?.toLocaleString() || 'N/A'}
+                                      </span>
+                                    </div>
+                                    <div className="bg-gray-800 p-2 rounded">
+                                      <span className="text-gray-500">TPD:</span>{' '}
+                                      <span className="text-blue-400 font-semibold">
+                                        {model.limits.tokensPerDay?.toLocaleString() || 'N/A'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {model.usageCount > 0 && (
+                                  <p className="text-xs text-green-400 mt-2">
+                                    ✓ Usado {model.usageCount} vezes
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <button
+                                onClick={() => toggleGroqModelVisibility(model.id, model.hidden)}
+                                className={`p-2 rounded transition ${
+                                  model.hidden 
+                                    ? 'bg-green-600 hover:bg-green-500' 
+                                    : 'bg-red-600 hover:bg-red-500'
+                                }`}
+                                title={model.hidden ? 'Mostrar para usuários' : 'Ocultar para usuários'}
+                              >
+                                {model.hidden ? <Eye size={18}/> : <EyeOff size={18}/>}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        {groqModels.length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            Nenhum modelo Groq encontrado. Verifique se a API Key do Groq está configurada.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Tab: Uso por Modelo */}
+                  {groqActiveTab === 'usage' && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">Estatísticas de Uso por Modelo</h3>
+                      
+                      <div className="grid gap-3">
+                        {groqUsage.map((item, index) => (
+                          <div 
+                            key={item._id || item.modelId || index}
+                            className="p-4 bg-gray-900 rounded-lg border border-gray-600"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-semibold">{item._id || item.modelId}</span>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {item.uniqueUsers || 0} usuários únicos
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-2xl font-bold text-orange-400">
+                                  {(item.count || 0).toLocaleString()}
+                                </span>
+                                <p className="text-xs text-gray-500">requisições</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        {groqUsage.length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            Nenhum uso registrado ainda.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Tab: Ranking de Usuários */}
+                  {groqActiveTab === 'userRanking' && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">Ranking de Usuários por Uso do Groq</h3>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="text-left border-b border-gray-700">
+                              <th className="p-3 text-gray-400">#</th>
+                              <th className="p-3 text-gray-400">Usuário</th>
+                              <th className="p-3 text-gray-400">Total de Requisições</th>
+                              <th className="p-3 text-gray-400">Modelos Usados</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groqUserRankings.map((user, index) => (
+                              <tr 
+                                key={user.userId || user._id?.userId || index}
+                                className={`border-b border-gray-800 ${
+                                  index < 3 ? 'bg-orange-900/20' : ''
+                                }`}
+                              >
+                                <td className="p-3">
+                                  {index === 0 && <span className="text-yellow-400 text-xl">🥇</span>}
+                                  {index === 1 && <span className="text-gray-300 text-xl">🥈</span>}
+                                  {index === 2 && <span className="text-orange-400 text-xl">🥉</span>}
+                                  {index > 2 && <span className="text-gray-500">{index + 1}</span>}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <User size={16} className="text-gray-400"/>
+                                    <span className="font-medium">{user.username || 'Usuário ' + (user.userId?.slice(-4) || '?')}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className="text-orange-400 font-bold">
+                                    {(user.count || 0).toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-gray-400">
+                                  {user.modelsUsed || 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        
+                        {groqUserRankings.length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            Nenhum ranking disponível ainda.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Tab: Ranking de Modelos */}
+                  {groqActiveTab === 'modelRanking' && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold mb-4">Modelos Mais Usados</h3>
+                      
+                      <div className="grid gap-3">
+                        {groqModelRankings.map((model, index) => {
+                          const maxCount = groqModelRankings[0]?.count || 1;
+                          const percentage = ((model.count || 0) / maxCount) * 100;
+                          
+                          return (
+                            <div 
+                              key={model._id || model.modelId || index}
+                              className="p-4 bg-gray-900 rounded-lg border border-gray-600"
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  {index === 0 && <span className="text-yellow-400">🥇</span>}
+                                  {index === 1 && <span className="text-gray-300">🥈</span>}
+                                  {index === 2 && <span className="text-orange-400">🥉</span>}
+                                  <span className="font-semibold">{model._id || model.modelId}</span>
+                                </div>
+                                <span className="text-orange-400 font-bold">
+                                  {(model.count || 0).toLocaleString()} usos
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-700 rounded-full h-2">
+                                <div 
+                                  className="bg-orange-500 h-2 rounded-full transition-all"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {model.uniqueUsers || 0} usuários únicos
+                              </p>
+                            </div>
+                          );
+                        })}
+                        
+                        {groqModelRankings.length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            Nenhum ranking disponível ainda.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

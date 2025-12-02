@@ -117,6 +117,7 @@ const Chat = require('./models/Chat');
 const CustomTool = require('./models/CustomTool');
 const GlobalConfig = require('./models/GlobalConfig');
 const PageContent = require('./models/PageContent');
+const ModelUsage = require('./models/ModelUsage');
 
 const execPromise = util.promisify(exec);
 const app = express();
@@ -855,12 +856,15 @@ const callG4F = async (model, messages, preferredProvider = null) => {
             // Cloudflare Worker retorna em formato diferente
             if (isWorker && response?.response) {
                 console.log(`G4F sucesso com provedor: ${name} (Worker)`);
-                return { role: 'assistant', content: response.response };
+                return { role: 'assistant', content: response.response, _provider: name };
             }
             
             if (response?.choices?.[0]?.message) {
                 console.log(`G4F sucesso com provedor: ${name}`);
-                return response.choices[0].message;
+                const msg = response.choices[0].message;
+                msg._provider = name;
+                msg._tokens = response.usage?.total_tokens || 0;
+                return msg;
             }
         } catch (e) {
             console.log(`G4F provedor ${name} falhou:`, e.message);
@@ -919,7 +923,10 @@ const callG4FWithTools = async (model, messages, tools, preferredProvider = null
             
             if (response?.choices?.[0]?.message) {
                 console.log(`G4F com tools sucesso com provedor: ${name}`);
-                return response.choices[0].message;
+                const msg = response.choices[0].message;
+                msg._provider = name;
+                msg._tokens = response.usage?.total_tokens || 0;
+                return msg;
             }
         } catch (e) {
             console.log(`G4F com tools - provedor ${name} falhou:`, e.message);
@@ -956,16 +963,28 @@ app.post('/api/chat', auth, chatLimiter, async (req, res) => {
         
         try {
             const msg = await callG4F(model, msgs);
-            res.json(msg);
+            res.json({ role: msg.role, content: msg.content });
             
             // Incrementa uso e salva histórico
             User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
+            
+            // Rastreia uso do modelo (para estatísticas Groq)
+            if (msg._provider) {
+                new ModelUsage({
+                    modelId: model,
+                    provider: msg._provider,
+                    userId: req.user._id,
+                    username: req.user.username,
+                    tokens: msg._tokens || 0,
+                    timestamp: new Date()
+                }).save().catch(err => console.error('Erro ao rastrear uso:', err));
+            }
             
             if (chatId) {
                 Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
                     if (chat) {
                         chat.messages.push(messages[messages.length - 1]);
-                        chat.messages.push(msg);
+                        chat.messages.push({ role: msg.role, content: msg.content });
                         chat.model = model;
                         chat.updatedAt = Date.now();
                         await chat.save();
@@ -2051,6 +2070,18 @@ Use as ferramentas quando apropriado, mas esteja ciente de que nem todas podem f
             // Incrementa uso e salva histórico
             User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
             
+            // Rastreia uso do modelo (para estatísticas Groq)
+            if (assistantMessage._provider) {
+                new ModelUsage({
+                    modelId: model,
+                    provider: assistantMessage._provider,
+                    userId: req.user._id,
+                    username: req.user.username,
+                    tokens: assistantMessage._tokens || 0,
+                    timestamp: new Date()
+                }).save().catch(err => console.error('Erro ao rastrear uso:', err));
+            }
+            
             if (chatId) {
                 Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
                     if (chat) {
@@ -2825,5 +2856,279 @@ function getDefaultSections(page) {
     }
     return [];
 }
+
+// ============ GROQ ADMIN ROUTES ============
+
+// Cache para modelos Groq da API
+let groqModelsCache = { data: null, lastFetch: 0 };
+const GROQ_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+// Buscar modelos Groq dinamicamente da API
+app.get('/api/admin/groq/models', auth, adminOnly, async (req, res) => {
+    try {
+        const groqKey = await getGroqApiKey();
+        if (!groqKey) {
+            return res.status(400).json({ error: 'Groq API Key não configurada' });
+        }
+        
+        const now = Date.now();
+        
+        // Verificar cache
+        if (groqModelsCache.data && (now - groqModelsCache.lastFetch) < GROQ_CACHE_TTL) {
+            return res.json(groqModelsCache.data);
+        }
+        
+        // Buscar modelos da API do Groq
+        const response = await axios.get('https://api.groq.com/openai/v1/models', {
+            headers: { 'Authorization': `Bearer ${groqKey}` },
+            timeout: 10000
+        });
+        
+        // Buscar limites de rate limit
+        const limitsResponse = await axios.get('https://api.groq.com/openai/v1/rate_limits', {
+            headers: { 'Authorization': `Bearer ${groqKey}` },
+            timeout: 10000
+        }).catch(() => ({ data: null }));
+        
+        // Buscar modelos ocultos do banco
+        await connectDB();
+        const hiddenConfig = await GlobalConfig.findOne({ key: 'GROQ_HIDDEN_MODELS' });
+        const hiddenModels = hiddenConfig?.value || [];
+        
+        // Processar modelos
+        const models = response.data.data
+            .filter(m => m.id && !m.id.includes('whisper')) // Filtrar whisper (audio)
+            .map(m => ({
+                id: m.id,
+                name: m.id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                owned_by: m.owned_by,
+                context_window: m.context_window || 8192,
+                created: m.created,
+                hidden: hiddenModels.includes(m.id),
+                limits: limitsResponse.data?.find(l => l.model === m.id) || null
+            }));
+        
+        groqModelsCache = { data: models, lastFetch: now };
+        res.json(models);
+        
+    } catch (e) {
+        console.error('Erro ao buscar modelos Groq:', e.message);
+        
+        // Fallback: retornar modelos conhecidos
+        const fallbackModels = [
+            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', context_window: 128000 },
+            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile', context_window: 128000 },
+            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', context_window: 128000 },
+            { id: 'llama3-70b-8192', name: 'Llama 3 70B', context_window: 8192 },
+            { id: 'llama3-8b-8192', name: 'Llama 3 8B', context_window: 8192 },
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B IT', context_window: 8192 },
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', context_window: 32768 },
+        ];
+        res.json(fallbackModels);
+    }
+});
+
+// Buscar limites de uso do Groq
+app.get('/api/admin/groq/limits', auth, adminOnly, async (req, res) => {
+    try {
+        const groqKey = await getGroqApiKey();
+        if (!groqKey) {
+            return res.status(400).json({ error: 'Groq API Key não configurada' });
+        }
+        
+        // A API do Groq não tem endpoint público de limites, então vamos simular baseado na documentação
+        // Limites típicos do tier gratuito: https://console.groq.com/docs/rate-limits
+        const defaultLimits = {
+            tier: 'free',
+            requests_per_minute: 30,
+            requests_per_day: 14400,
+            tokens_per_minute: 6000,
+            tokens_per_day: 500000,
+            models: {
+                'llama-3.3-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 131072 },
+                'llama-3.1-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 131072 },
+                'llama-3.1-8b-instant': { rpm: 30, rpd: 14400, tpm: 20000, tpd: 500000 },
+                'llama3-70b-8192': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 500000 },
+                'llama3-8b-8192': { rpm: 30, rpd: 14400, tpm: 30000, tpd: 500000 },
+                'gemma2-9b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
+                'mixtral-8x7b-32768': { rpm: 30, rpd: 14400, tpm: 5000, tpd: 500000 },
+            }
+        };
+        
+        res.json(defaultLimits);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Estatísticas de uso dos modelos
+app.get('/api/admin/groq/stats', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        
+        const { period = '7d' } = req.query;
+        const periodMs = {
+            '24h': 24 * 60 * 60 * 1000,
+            '7d': 7 * 24 * 60 * 60 * 1000,
+            '30d': 30 * 24 * 60 * 60 * 1000,
+            'all': 365 * 24 * 60 * 60 * 1000
+        };
+        
+        const startDate = new Date(Date.now() - (periodMs[period] || periodMs['7d']));
+        
+        // Uso por modelo
+        const modelUsage = await ModelUsage.aggregate([
+            { $match: { provider: 'groq', timestamp: { $gte: startDate } } },
+            { $group: { 
+                _id: '$modelId', 
+                count: { $sum: 1 },
+                tokens: { $sum: '$tokens' },
+                users: { $addToSet: '$userId' }
+            }},
+            { $project: { 
+                modelId: '$_id', 
+                count: 1, 
+                tokens: 1, 
+                uniqueUsers: { $size: '$users' }
+            }},
+            { $sort: { count: -1 } }
+        ]);
+        
+        // Ranking de usuários por modelo
+        const usersByModel = await ModelUsage.aggregate([
+            { $match: { provider: 'groq', timestamp: { $gte: startDate } } },
+            { $group: { 
+                _id: { modelId: '$modelId', userId: '$userId', username: '$username' },
+                count: { $sum: 1 },
+                tokens: { $sum: '$tokens' }
+            }},
+            { $sort: { count: -1 } },
+            { $group: {
+                _id: '$_id.modelId',
+                topUsers: { $push: { 
+                    userId: '$_id.userId',
+                    username: '$_id.username',
+                    count: '$count',
+                    tokens: '$tokens'
+                }}
+            }},
+            { $project: {
+                modelId: '$_id',
+                topUsers: { $slice: ['$topUsers', 10] }
+            }}
+        ]);
+        
+        // Ranking geral de usuários
+        const topUsersGeneral = await ModelUsage.aggregate([
+            { $match: { provider: 'groq', timestamp: { $gte: startDate } } },
+            { $group: { 
+                _id: { userId: '$userId', username: '$username' },
+                count: { $sum: 1 },
+                tokens: { $sum: '$tokens' },
+                models: { $addToSet: '$modelId' }
+            }},
+            { $project: {
+                userId: '$_id.userId',
+                username: '$_id.username',
+                count: 1,
+                tokens: 1,
+                modelsUsed: { $size: '$models' }
+            }},
+            { $sort: { count: -1 } },
+            { $limit: 20 }
+        ]);
+        
+        // Total de uso
+        const totalUsage = await ModelUsage.aggregate([
+            { $match: { provider: 'groq', timestamp: { $gte: startDate } } },
+            { $group: { 
+                _id: null,
+                totalRequests: { $sum: 1 },
+                totalTokens: { $sum: '$tokens' },
+                uniqueUsers: { $addToSet: '$userId' },
+                uniqueModels: { $addToSet: '$modelId' }
+            }},
+            { $project: {
+                totalRequests: 1,
+                totalTokens: 1,
+                uniqueUsers: { $size: '$uniqueUsers' },
+                uniqueModels: { $size: '$uniqueModels' }
+            }}
+        ]);
+        
+        // Uso por dia (para gráfico)
+        const dailyUsage = await ModelUsage.aggregate([
+            { $match: { provider: 'groq', timestamp: { $gte: startDate } } },
+            { $group: {
+                _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+                count: { $sum: 1 },
+                tokens: { $sum: '$tokens' }
+            }},
+            { $sort: { _id: 1 } }
+        ]);
+        
+        res.json({
+            period,
+            total: totalUsage[0] || { totalRequests: 0, totalTokens: 0, uniqueUsers: 0, uniqueModels: 0 },
+            modelUsage,
+            usersByModel,
+            topUsersGeneral,
+            dailyUsage
+        });
+        
+    } catch (e) {
+        console.error('Erro ao buscar stats Groq:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Ocultar/mostrar modelos Groq
+app.post('/api/admin/groq/toggle-visibility', auth, adminOnly, async (req, res) => {
+    try {
+        const { modelId, hidden } = req.body;
+        
+        if (!modelId) {
+            return res.status(400).json({ error: 'modelId é obrigatório' });
+        }
+        
+        await connectDB();
+        
+        let hiddenConfig = await GlobalConfig.findOne({ key: 'GROQ_HIDDEN_MODELS' });
+        let hiddenModels = hiddenConfig?.value || [];
+        
+        if (hidden) {
+            if (!hiddenModels.includes(modelId)) {
+                hiddenModels.push(modelId);
+            }
+        } else {
+            hiddenModels = hiddenModels.filter(id => id !== modelId);
+        }
+        
+        await GlobalConfig.findOneAndUpdate(
+            { key: 'GROQ_HIDDEN_MODELS' },
+            { key: 'GROQ_HIDDEN_MODELS', value: hiddenModels, updatedAt: new Date() },
+            { upsert: true }
+        );
+        
+        // Limpar cache
+        groqModelsCache = { data: null, lastFetch: 0 };
+        
+        res.json({ success: true, hiddenModels });
+        
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Buscar modelos ocultos
+app.get('/api/admin/groq/hidden', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const config = await GlobalConfig.findOne({ key: 'GROQ_HIDDEN_MODELS' });
+        res.json(config?.value || []);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
