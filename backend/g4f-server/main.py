@@ -7,6 +7,7 @@ Este servidor pode rodar localmente ou em um container Docker
 import os
 import json
 import asyncio
+import time
 from typing import Optional, List, Dict, Any, AsyncGenerator
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,7 @@ import g4f
 from g4f.client import AsyncClient
 from g4f.Provider import __providers__
 from g4f import models
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 app = FastAPI(
     title="GPT4Free API Server",
@@ -34,6 +36,30 @@ app.add_middleware(
 
 # Cliente assíncrono do g4f
 client = AsyncClient()
+
+# ============ CACHE DE MODELOS ============
+# Cache para evitar iterar sobre providers a cada requisição
+models_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 300  # 5 minutos
+}
+
+def get_cached_models():
+    """Retorna modelos do cache ou None se expirado"""
+    if models_cache["data"] is None:
+        return None
+    if time.time() - models_cache["timestamp"] > models_cache["ttl"]:
+        return None
+    return models_cache["data"]
+
+def set_cached_models(data):
+    """Salva modelos no cache"""
+    models_cache["data"] = data
+    models_cache["timestamp"] = time.time()
+
+# Executor para chamadas síncronas com timeout
+executor = ThreadPoolExecutor(max_workers=4)
 
 # ============ MODELOS PYDANTIC ============
 
@@ -78,47 +104,53 @@ async def root():
 async def list_models():
     """Lista todos os modelos disponíveis de todos os providers funcionais e gratuitos"""
     try:
+        # Verifica cache primeiro
+        cached = get_cached_models()
+        if cached:
+            return cached
+        
         model_list = []
         seen_models = {}  # Para evitar duplicatas, mas guardar providers
         
         # Coleta modelos de todos os providers funcionais e sem autenticação
         for provider in __providers__:
-            if not provider.working:
+            try:
+                if not provider.working:
+                    continue
+                if getattr(provider, 'needs_auth', False):
+                    continue
+                
+                provider_name = provider.__name__
+                provider_models = []
+                
+                # Tenta obter modelos do atributo direto (rápido)
+                if hasattr(provider, 'models') and provider.models:
+                    if isinstance(provider.models, list):
+                        provider_models = provider.models
+                    elif isinstance(provider.models, dict):
+                        provider_models = list(provider.models.keys())
+                
+                # NÃO chama get_models() pois pode fazer requisição de rede
+                # e bloquear o servidor
+                
+                # Adiciona modelos ao dicionário
+                for model in provider_models:
+                    if model:
+                        model_name = str(model)
+                        if model_name not in seen_models:
+                            seen_models[model_name] = {
+                                "id": model_name,
+                                "object": "model",
+                                "type": "chat",
+                                "owned_by": "g4f",
+                                "providers": [provider_name]
+                            }
+                        else:
+                            if provider_name not in seen_models[model_name]["providers"]:
+                                seen_models[model_name]["providers"].append(provider_name)
+            except Exception as e:
+                # Ignora erros de providers individuais
                 continue
-            if getattr(provider, 'needs_auth', False):
-                continue
-            
-            provider_name = provider.__name__
-            provider_models = []
-            
-            # Tenta obter modelos de várias formas
-            if hasattr(provider, 'models') and provider.models:
-                if isinstance(provider.models, list):
-                    provider_models = provider.models
-                elif isinstance(provider.models, dict):
-                    provider_models = list(provider.models.keys())
-            
-            if not provider_models and hasattr(provider, 'get_models'):
-                try:
-                    provider_models = provider.get_models() or []
-                except:
-                    pass
-            
-            # Adiciona modelos ao dicionário
-            for model in provider_models:
-                if model:
-                    model_name = str(model)
-                    if model_name not in seen_models:
-                        seen_models[model_name] = {
-                            "id": model_name,
-                            "object": "model",
-                            "type": "chat",
-                            "owned_by": "g4f",
-                            "providers": [provider_name]
-                        }
-                    else:
-                        if provider_name not in seen_models[model_name]["providers"]:
-                            seen_models[model_name]["providers"].append(provider_name)
         
         # Converte para lista
         model_list = list(seen_models.values())
@@ -126,11 +158,16 @@ async def list_models():
         # Ordena por nome
         model_list.sort(key=lambda x: x["id"].lower())
         
-        return {
+        result = {
             "data": model_list, 
             "object": "list",
             "total": len(model_list)
         }
+        
+        # Salva no cache
+        set_cached_models(result)
+        
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -142,39 +179,37 @@ async def list_all_models_with_providers():
         all_unique_models = set()
         
         for provider in __providers__:
-            if not provider.working:
+            try:
+                if not provider.working:
+                    continue
+                if getattr(provider, 'needs_auth', False):
+                    continue
+                
+                provider_name = provider.__name__
+                provider_models = []
+                
+                # Tenta obter modelos do atributo direto (rápido)
+                if hasattr(provider, 'models') and provider.models:
+                    if isinstance(provider.models, list):
+                        provider_models = [str(m) for m in provider.models if m]
+                    elif isinstance(provider.models, dict):
+                        provider_models = list(provider.models.keys())
+                
+                # NÃO chama get_models() para evitar bloqueio
+                
+                if provider_models:
+                    for m in provider_models:
+                        all_unique_models.add(m)
+                        
+                    providers_with_models.append({
+                        "provider": provider_name,
+                        "models": sorted(provider_models),
+                        "count": len(provider_models),
+                        "url": getattr(provider, 'url', None)
+                    })
+            except Exception as e:
+                # Ignora erros de providers individuais
                 continue
-            if getattr(provider, 'needs_auth', False):
-                continue
-            
-            provider_name = provider.__name__
-            provider_models = []
-            
-            # Tenta obter modelos de várias formas
-            if hasattr(provider, 'models') and provider.models:
-                if isinstance(provider.models, list):
-                    provider_models = [str(m) for m in provider.models if m]
-                elif isinstance(provider.models, dict):
-                    provider_models = list(provider.models.keys())
-            
-            if not provider_models and hasattr(provider, 'get_models'):
-                try:
-                    result = provider.get_models()
-                    if result:
-                        provider_models = [str(m) for m in result if m]
-                except:
-                    pass
-            
-            if provider_models:
-                for m in provider_models:
-                    all_unique_models.add(m)
-                    
-                providers_with_models.append({
-                    "provider": provider_name,
-                    "models": sorted(provider_models),
-                    "count": len(provider_models),
-                    "url": getattr(provider, 'url', None)
-                })
         
         # Ordena por quantidade de modelos (mais modelos primeiro)
         providers_with_models.sort(key=lambda x: -x["count"])
@@ -195,29 +230,33 @@ async def list_providers():
         providers_list = []
         
         for provider in __providers__:
-            if not provider.working:
-                continue
+            try:
+                if not provider.working:
+                    continue
+                    
+                provider_info = {
+                    "id": provider.__name__,
+                    "working": provider.working,
+                    "needs_auth": getattr(provider, 'needs_auth', False),
+                    "supports_stream": getattr(provider, 'supports_stream', True),
+                    "url": getattr(provider, 'url', None),
+                }
                 
-            provider_info = {
-                "id": provider.__name__,
-                "working": provider.working,
-                "needs_auth": getattr(provider, 'needs_auth', False),
-                "supports_stream": getattr(provider, 'supports_stream', True),
-                "url": getattr(provider, 'url', None),
-            }
-            
-            # Tenta obter modelos suportados
-            if hasattr(provider, 'models'):
-                provider_info["models"] = provider.models if isinstance(provider.models, list) else []
-            elif hasattr(provider, 'get_models'):
-                try:
-                    provider_info["models"] = provider.get_models()
-                except:
+                # Tenta obter modelos do atributo direto apenas
+                if hasattr(provider, 'models') and provider.models:
+                    if isinstance(provider.models, list):
+                        provider_info["models"] = [str(m) for m in provider.models if m]
+                    elif isinstance(provider.models, dict):
+                        provider_info["models"] = list(provider.models.keys())
+                    else:
+                        provider_info["models"] = []
+                else:
                     provider_info["models"] = []
-            else:
-                provider_info["models"] = []
-            
-            providers_list.append(provider_info)
+                
+                providers_list.append(provider_info)
+            except Exception as e:
+                # Ignora erros de providers individuais
+                continue
         
         return {"data": providers_list, "object": "list"}
     except Exception as e:
