@@ -5,9 +5,13 @@
  */
 
 const OpenAI = require('openai');
+const axios = require('axios');
 
 // Cache de clients para evitar re-instanciação
 const clientCache = new Map();
+
+// URL do servidor G4F Python (pode ser local ou remoto)
+const G4F_PYTHON_API_URL = process.env.G4F_API_URL || 'http://localhost:8080';
 
 /**
  * Configuração dos providers disponíveis
@@ -120,6 +124,26 @@ const PROVIDERS = {
     supportsTools: false,
     supportsStreaming: true,
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct'
+  },
+
+  // GPT4Free Python - Acessa TODOS os providers do g4f Python
+  // Requer que o servidor g4f-server esteja rodando (docker-compose up)
+  g4f_python: {
+    name: 'GPT4Free (Python)',
+    baseURL: G4F_PYTHON_API_URL + '/v1',
+    requiresKey: false,
+    supportsTools: false,
+    supportsStreaming: true,
+    supportsImages: true,
+    isG4FPython: true,
+    // Providers Python disponíveis (os principais que funcionam)
+    pythonProviders: [
+      'Copilot', 'Bing', 'DeepInfra', 'HuggingChat', 'HuggingFace',
+      'OpenaiChat', 'Gemini', 'GeminiPro', 'MetaAI', 'You',
+      'PollinationsAI', 'Cloudflare', 'DDG', 'Blackbox',
+      'TeachAnything', 'Puter', 'Qwen', 'GLM'
+    ],
+    defaultModel: 'gpt-4o'
   }
 };
 
@@ -307,6 +331,103 @@ function getGroqRateLimits(model) {
   return PROVIDERS.groq.rateLimits[model] || null;
 }
 
+// ============ FUNÇÕES DO G4F PYTHON ============
+
+/**
+ * Verifica se o servidor G4F Python está online
+ */
+async function isG4FPythonAvailable() {
+  try {
+    const response = await axios.get(`${G4F_PYTHON_API_URL}/`, { timeout: 5000 });
+    return response.data?.status === 'online';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lista os modelos disponíveis no G4F Python
+ */
+async function listG4FPythonModels() {
+  try {
+    const response = await axios.get(`${G4F_PYTHON_API_URL}/v1/models`, { timeout: 10000 });
+    return response.data?.data || [];
+  } catch (e) {
+    console.error('[G4F Python] Erro ao listar modelos:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Lista os providers Python disponíveis
+ */
+async function listG4FPythonProviders() {
+  try {
+    const response = await axios.get(`${G4F_PYTHON_API_URL}/v1/providers`, { timeout: 10000 });
+    return response.data?.data || [];
+  } catch (e) {
+    console.error('[G4F Python] Erro ao listar providers:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Faz uma chamada de chat via G4F Python
+ */
+async function chatG4FPython(options) {
+  const { model, messages, stream = false, provider = null } = options;
+  
+  try {
+    const payload = {
+      model: model || 'auto',
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      stream,
+      provider
+    };
+
+    if (stream) {
+      // Retorna um stream generator
+      const response = await axios.post(
+        `${G4F_PYTHON_API_URL}/v1/chat/completions`,
+        payload,
+        { 
+          responseType: 'stream',
+          timeout: 120000,
+          headers: { 'Accept': 'text/event-stream' }
+        }
+      );
+      return response.data;
+    } else {
+      const response = await axios.post(
+        `${G4F_PYTHON_API_URL}/v1/chat/completions`,
+        payload,
+        { timeout: 120000 }
+      );
+      return response.data;
+    }
+  } catch (e) {
+    console.error('[G4F Python] Erro no chat:', e.message);
+    throw e;
+  }
+}
+
+/**
+ * Gera imagem via G4F Python
+ */
+async function generateImageG4FPython(prompt, model = 'flux', provider = null) {
+  try {
+    const response = await axios.post(
+      `${G4F_PYTHON_API_URL}/v1/images/generations`,
+      { prompt, model, provider },
+      { timeout: 120000 }
+    );
+    return response.data;
+  } catch (e) {
+    console.error('[G4F Python] Erro na geração de imagem:', e.message);
+    throw e;
+  }
+}
+
 module.exports = {
   PROVIDERS,
   getProviderConfig,
@@ -315,5 +436,12 @@ module.exports = {
   chat,
   chatWithFallback,
   detectProvider,
-  getGroqRateLimits
+  getGroqRateLimits,
+  // Funções do G4F Python
+  G4F_PYTHON_API_URL,
+  isG4FPythonAvailable,
+  listG4FPythonModels,
+  listG4FPythonProviders,
+  chatG4FPython,
+  generateImageG4FPython
 };

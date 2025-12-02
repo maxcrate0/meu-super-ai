@@ -733,12 +733,16 @@ app.get('/api/providers', async (req, res) => {
         const groqKey = await getGroqApiKey();
         const openRouterKey = await getApiKey({ personal_api_key: null }); // Global key
         
+        // Verifica se o G4F Python está disponível
+        const g4fPythonAvailable = await providers.isG4FPythonAvailable();
+        
         const enrichedProviders = providerList.map(p => ({
             ...p,
             configured: p.id === 'groq' ? !!groqKey :
                         p.id === 'openrouter' ? !!openRouterKey :
                         p.id === 'cerebras' ? !!process.env.CEREBRAS_API_KEY :
                         p.id === 'huggingface' ? !!process.env.HUGGINGFACE_API_KEY :
+                        p.id === 'g4f_python' ? g4fPythonAvailable :
                         !p.requiresKey // Pollinations, DeepInfra, Cloudflare não precisam
         }));
         
@@ -773,6 +777,133 @@ app.get('/api/providers/groq/limits', async (req, res) => {
         const groqConfig = providers.getProviderConfig('groq');
         res.json(groqConfig?.rateLimits || {});
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ============ GPT4FREE PYTHON API ============
+
+// Status do servidor G4F Python
+app.get('/api/g4f/status', async (req, res) => {
+    try {
+        const isAvailable = await providers.isG4FPythonAvailable();
+        res.json({ 
+            available: isAvailable,
+            url: providers.G4F_PYTHON_API_URL,
+            message: isAvailable 
+                ? 'Servidor G4F Python está online' 
+                : 'Servidor G4F Python offline. Execute: cd backend && docker-compose up g4f-server'
+        });
+    } catch (e) {
+        res.json({ 
+            available: false, 
+            error: e.message,
+            url: providers.G4F_PYTHON_API_URL
+        });
+    }
+});
+
+// Lista modelos do G4F Python
+app.get('/api/g4f/models', async (req, res) => {
+    try {
+        const models = await providers.listG4FPythonModels();
+        if (models.length === 0) {
+            return res.json({ 
+                error: 'Servidor G4F Python não está disponível',
+                hint: 'Execute: cd backend && docker-compose up g4f-server'
+            });
+        }
+        res.json(models);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Lista providers Python do G4F
+app.get('/api/g4f/providers', async (req, res) => {
+    try {
+        const pythonProviders = await providers.listG4FPythonProviders();
+        if (pythonProviders.length === 0) {
+            return res.json({ 
+                error: 'Servidor G4F Python não está disponível',
+                hint: 'Execute: cd backend && docker-compose up g4f-server'
+            });
+        }
+        res.json(pythonProviders);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Chat via G4F Python (endpoint direto)
+app.post('/api/g4f/chat', async (req, res) => {
+    try {
+        const { model, messages, stream = false, provider = null } = req.body;
+        
+        if (!messages || !Array.isArray(messages)) {
+            return res.status(400).json({ error: 'Messages é obrigatório' });
+        }
+        
+        // Verifica se G4F Python está disponível
+        const isAvailable = await providers.isG4FPythonAvailable();
+        if (!isAvailable) {
+            return res.status(503).json({ 
+                error: 'Servidor G4F Python não está disponível',
+                hint: 'Execute: cd backend && docker-compose up g4f-server'
+            });
+        }
+        
+        if (stream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            
+            const streamData = await providers.chatG4FPython({ model, messages, stream: true, provider });
+            
+            streamData.on('data', chunk => {
+                res.write(chunk);
+            });
+            
+            streamData.on('end', () => {
+                res.end();
+            });
+            
+            streamData.on('error', err => {
+                console.error('[G4F Python Stream] Error:', err.message);
+                res.end();
+            });
+        } else {
+            const response = await providers.chatG4FPython({ model, messages, stream: false, provider });
+            res.json(response);
+        }
+    } catch (e) {
+        console.error('[G4F Python] Erro no chat:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Geração de imagem via G4F Python
+app.post('/api/g4f/images', async (req, res) => {
+    try {
+        const { prompt, model = 'flux', provider = null } = req.body;
+        
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt é obrigatório' });
+        }
+        
+        // Verifica se G4F Python está disponível
+        const isAvailable = await providers.isG4FPythonAvailable();
+        if (!isAvailable) {
+            return res.status(503).json({ 
+                error: 'Servidor G4F Python não está disponível',
+                hint: 'Execute: cd backend && docker-compose up g4f-server'
+            });
+        }
+        
+        const response = await providers.generateImageG4FPython(prompt, model, provider);
+        res.json(response);
+    } catch (e) {
+        console.error('[G4F Python] Erro na imagem:', e.message);
         res.status(500).json({ error: e.message });
     }
 });

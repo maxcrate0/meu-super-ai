@@ -1,0 +1,18 @@
+# Backend Node.js Dockerfile
+FROM node:20-slim
+
+WORKDIR /app
+
+# Instala dependências
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copia código
+COPY . .
+
+# Remove arquivos desnecessários
+RUN rm -rf g4f-server docker-compose.yml Dockerfile.backend
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]
