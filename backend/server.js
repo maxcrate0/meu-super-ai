@@ -855,28 +855,37 @@ const getAvailableTools = (userId) => [
         type: "function",
         function: {
             name: "swarm_delegate",
-            description: `Delega uma ou mais tarefas para agentes secundários (IAs auxiliares) que executam de forma independente e retornam apenas o resultado. 
-Use esta ferramenta para:
-- Executar múltiplas tarefas em PARALELO para maior eficiência
-- Processar dados extensos sem ocupar sua janela de contexto
-- Analisar, resumir ou transformar informações
-Os agentes têm MEMÓRIA VOLÁTIL, então inclua TODO o contexto necessário em cada tarefa.`,
+            description: `FERRAMENTA DE DELEGAÇÃO PARALELA - Use esta ferramenta para executar múltiplas tarefas SIMULTANEAMENTE através de agentes IA secundários.
+
+CASOS DE USO OBRIGATÓRIOS:
+1. Quando o usuário pedir para pesquisar sobre MÚLTIPLOS tópicos
+2. Quando o usuário quiser comparar diferentes assuntos
+3. Quando for necessário analisar dados de diferentes ângulos
+4. Quando houver palavras como: "paralelo", "simultâneo", "ao mesmo tempo", "compare", "pesquise X, Y e Z"
+
+COMO USAR:
+- Crie uma tarefa para cada item/tópico diferente
+- Cada agente recebe uma instrução independente
+- Os resultados são consolidados automaticamente
+
+EXEMPLO: Para "pesquise sobre Python e JavaScript", crie 2 tarefas com id="python" e id="javascript".`,
             parameters: {
                 type: "object",
                 properties: {
                     tasks: {
                         type: "array",
-                        description: "Lista de tarefas a serem executadas por agentes secundários em paralelo",
+                        description: "Array de tarefas a serem executadas em paralelo. Cada tarefa deve ter id único e instruction clara.",
                         items: {
                             type: "object",
                             properties: {
-                                id: { type: "string", description: "Identificador único da tarefa" },
-                                instruction: { type: "string", description: "Instrução clara e completa para o agente" },
-                                context: { type: "string", description: "Dados ou contexto adicional (opcional)" },
-                                output_format: { type: "string", description: "Formato esperado da resposta" }
+                                id: { type: "string", description: "ID único da tarefa (ex: 'task1', 'python', 'analise_mercado')" },
+                                instruction: { type: "string", description: "Instrução completa para o agente executar. Seja específico e detalhado." },
+                                context: { type: "string", description: "Dados ou contexto adicional para a tarefa (opcional)" },
+                                output_format: { type: "string", description: "Formato desejado da resposta: 'text', 'json', 'markdown', 'list' (opcional)" }
                             },
                             required: ["id", "instruction"]
-                        }
+                        },
+                        minItems: 1
                     }
                 },
                 required: ["tasks"]
@@ -1888,8 +1897,27 @@ Use as ferramentas quando apropriado, mas esteja ciente de que nem todas podem f
 
 Você tem acesso a um poderoso conjunto de ferramentas. Use-as quando necessário:
 
-### 🔄 DELEGAÇÃO (Swarm)
-- **swarm_delegate**: Delega tarefas para agentes paralelos. Use para múltiplas tarefas independentes.
+### 🔄 SISTEMA SWARM (Agentes Paralelos) - MUITO IMPORTANTE!
+- **swarm_delegate**: Delega tarefas para múltiplos agentes IA secundários que trabalham EM PARALELO.
+
+**QUANDO USAR SWARM:**
+- Quando o usuário pedir para fazer MÚLTIPLAS coisas ao mesmo tempo
+- Quando precisar analisar dados de diferentes perspectivas
+- Quando quiser comparar informações de fontes diferentes
+- Quando precisar processar muita informação rapidamente
+- Quando o usuário mencionar "paralelo", "simultâneo", "ao mesmo tempo", "swarm", "agentes"
+
+**EXEMPLO DE USO DO SWARM:**
+Se o usuário pedir "pesquise sobre Python, JavaScript e Rust", você pode:
+\`\`\`json
+{
+  "tasks": [
+    {"id": "python", "instruction": "Pesquise sobre a linguagem Python, suas vantagens e casos de uso"},
+    {"id": "javascript", "instruction": "Pesquise sobre JavaScript, suas vantagens e casos de uso"},
+    {"id": "rust", "instruction": "Pesquise sobre Rust, suas vantagens e casos de uso"}
+  ]
+}
+\`\`\`
 
 ### 🎨 GERAÇÃO DE MÍDIA
 - **generate_image**: Gera imagens com base em descrições (DALL-E, Stable Diffusion, etc.)
