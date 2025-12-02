@@ -583,9 +583,9 @@ app.get('/api/models/g4f', async (req, res) => {
                 { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile (Groq)', type: 'chat', speed: 'ultra-fast', context: 128000 },
                 { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant (Groq)', type: 'chat', speed: 'instant', context: 131072 },
                 
-                // Llama 4 - Novos modelos (IDs corretos sem prefixo)
-                { id: 'llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick 17B (Groq)', type: 'chat', speed: 'ultra-fast', context: 131072 },
-                { id: 'llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B (Groq)', type: 'chat', speed: 'ultra-fast', context: 131072 },
+                // Llama 4 - Novos modelos (IDs COM prefixo meta-llama/)
+                { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick 17B (Groq)', type: 'chat', speed: 'ultra-fast', context: 131072 },
+                { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B (Groq)', type: 'chat', speed: 'ultra-fast', context: 131072 },
                 
                 // Gemma
                 { id: 'gemma2-9b-it', name: 'Gemma 2 9B (Groq)', type: 'chat', speed: 'very-fast', context: 8192 },
@@ -605,15 +605,26 @@ app.get('/api/models/g4f', async (req, res) => {
                 // Mistral
                 { id: 'mistral-saba-24b', name: 'Mistral Saba 24B (Groq)', type: 'chat', speed: 'fast', context: 32768 },
                 
-                // Compound (Multi-modelo do Groq)
-                { id: 'compound-beta', name: 'Compound Beta (Groq Multi-Model)', type: 'chat', speed: 'fast', context: 131072 },
-                { id: 'compound-beta-mini', name: 'Compound Beta Mini (Groq)', type: 'chat', speed: 'very-fast', context: 131072 },
+                // OpenAI GPT-OSS - Modelos open source da OpenAI (IDs COM prefixo openai/)
+                { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B (Groq)', type: 'chat', speed: 'fast', context: 131072 },
+                { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (Groq)', type: 'chat', speed: 'very-fast', context: 131072 },
+                
+                // Kimi K2 - Moonshot AI (ID COM prefixo moonshotai/)
+                { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2 0905 (Groq)', type: 'chat', speed: 'fast', context: 262144 },
+                
+                // Qwen3 (ID COM prefixo qwen/)
+                { id: 'qwen/qwen3-32b', name: 'Qwen3 32B (Groq)', type: 'chat', speed: 'fast', context: 131072 },
+                
+                // Compound (Multi-modelo do Groq) - IDs COM prefixo groq/
+                { id: 'groq/compound', name: 'Compound (Groq Multi-Model)', type: 'chat', speed: 'fast', context: 131072 },
+                { id: 'groq/compound-mini', name: 'Compound Mini (Groq)', type: 'chat', speed: 'very-fast', context: 131072 },
                 
                 // ============ MODELOS DE SEGURANÇA ============
-                { id: 'llama-guard-4-12b', name: 'Llama Guard 4 12B (Groq)', type: 'moderation', speed: 'fast', context: 131072 },
+                // Llama Guard (IDs COM prefixo meta-llama/)
+                { id: 'meta-llama/llama-guard-4-12b', name: 'Llama Guard 4 12B (Groq)', type: 'moderation', speed: 'fast', context: 131072 },
                 { id: 'llama-guard-3-8b', name: 'Llama Guard 3 8B (Groq)', type: 'moderation', speed: 'fast', context: 8192 },
-                { id: 'llama-prompt-guard-2-86m', name: 'Prompt Guard 2 86M (Groq)', type: 'moderation', speed: 'instant' },
-                { id: 'llama-prompt-guard-2-22m', name: 'Prompt Guard 2 22M (Groq)', type: 'moderation', speed: 'instant' },
+                { id: 'meta-llama/llama-prompt-guard-2-86m', name: 'Prompt Guard 2 86M (Groq)', type: 'moderation', speed: 'instant' },
+                { id: 'meta-llama/llama-prompt-guard-2-22m', name: 'Prompt Guard 2 22M (Groq)', type: 'moderation', speed: 'instant' },
                 
                 // ============ MODELOS DE ÁUDIO ============
                 { id: 'whisper-large-v3', name: 'Whisper Large V3 (Groq)', type: 'audio', speed: 'fast' },
