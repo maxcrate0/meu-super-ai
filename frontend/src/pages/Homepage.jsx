@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { 
   Cpu, MessageSquare, Terminal, Globe, Wrench, ChevronDown,
   LogIn, UserPlus, Menu, X, Sparkles, Zap, Shield, Code,
-  Layers, Database, Bot, Infinity
+  Layers, Database, Bot, Infinity, Languages
 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const API = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net';
 
@@ -14,6 +15,8 @@ export default function Homepage({ user, setUser }) {
   const [content, setContent] = useState(null);
   const navigate = useNavigate();
   const toolsTimeoutRef = useRef(null);
+  const { lang, setLang, texts } = useLanguage();
+  const t = texts.home;
 
   // Carregar conteúdo da página
   useEffect(() => {
@@ -58,21 +61,21 @@ export default function Homepage({ user, setUser }) {
   };
 
   const tools = [
-    { name: 'Chat AI', path: '/chat', icon: MessageSquare, description: 'Converse com IAs avançadas' },
+    { name: t.tools.chat.name, path: '/chat', icon: MessageSquare, description: t.tools.chat.desc },
     // Mais ferramentas serão adicionadas aqui
   ];
 
   // Conteúdo padrão se não houver customização
   const defaultHero = {
     title: 'jgspAI',
-    subtitle: 'Plataforma de Inteligência Artificial avançada com múltiplas ferramentas para potencializar sua produtividade.',
+    subtitle: t.hero.subtitle,
   };
 
   const defaultFeatures = [
-    { icon: MessageSquare, title: 'Chat AI Avançado', desc: 'Converse com modelos de IA de última geração, crie ferramentas customizadas e automatize tarefas.' },
-    { icon: Terminal, title: 'Execução de Código', desc: 'Execute comandos bash, scripts Python e muito mais diretamente pela IA.' },
-    { icon: Globe, title: 'Pesquisa Web', desc: 'A IA pode pesquisar na web, extrair conteúdo de sites e monitorar requisições.' },
-    { icon: Wrench, title: 'Ferramentas Customizáveis', desc: 'Crie suas próprias ferramentas e automações que a IA pode usar.' },
+    { icon: MessageSquare, title: t.features.chat.title, desc: t.features.chat.desc },
+    { icon: Terminal, title: t.features.code.title, desc: t.features.code.desc },
+    { icon: Globe, title: t.features.web.title, desc: t.features.web.desc },
+    { icon: Wrench, title: t.features.tools.title, desc: t.features.tools.desc },
   ];
 
   const getSection = (id) => content?.sections?.find(s => s.id === id);
@@ -105,7 +108,7 @@ export default function Homepage({ user, setUser }) {
                   <button
                     className="flex items-center space-x-1 text-gray-300 hover:text-white transition-colors py-4"
                   >
-                    <span>Ferramentas</span>
+                    <span>{t.navbar.tools}</span>
                     <ChevronDown className={`h-4 w-4 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
                   </button>
                   
@@ -126,7 +129,7 @@ export default function Homepage({ user, setUser }) {
                           </button>
                         ))}
                         <div className="border-t border-gray-700 mt-2 pt-2 px-4 py-2">
-                          <p className="text-sm text-gray-500 italic">Mais ferramentas em breve...</p>
+                          <p className="text-sm text-gray-500 italic">{t.navbar.moreTools}</p>
                         </div>
                       </div>
                     </div>
@@ -134,16 +137,26 @@ export default function Homepage({ user, setUser }) {
                 </div>
 
                 <Link to="/docs" className="text-gray-300 hover:text-white transition-colors">
-                  Docs
+                  {t.navbar.docs}
                 </Link>
               </div>
             </div>
 
             {/* Menu Direito */}
             <div className="hidden md:flex items-center space-x-4">
+              {/* Botão de idioma */}
+              <button
+                onClick={() => setLang(lang === 'pt' ? 'en' : 'pt')}
+                className="flex items-center space-x-1 px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-indigo-500 rounded-lg transition-all"
+                title={lang === 'pt' ? 'Switch to English' : 'Mudar para Português'}
+              >
+                <Languages className="h-4 w-4" />
+                <span>{lang.toUpperCase()}</span>
+              </button>
+              
               {user ? (
                 <>
-                  <span className="text-gray-300">Olá, {user.displayName || user.username}</span>
+                  <span className="text-gray-300">{t.navbar.hello}, {user.displayName || user.username}</span>
                   {user.role === 'admin' && (
                     <Link 
                       to="/admin" 
@@ -156,7 +169,7 @@ export default function Homepage({ user, setUser }) {
                     onClick={handleLogout}
                     className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
                   >
-                    Sair
+                    {t.navbar.logout}
                   </button>
                 </>
               ) : (
@@ -166,14 +179,14 @@ export default function Homepage({ user, setUser }) {
                     className="flex items-center space-x-2 px-4 py-2 text-gray-300 hover:text-white transition-colors"
                   >
                     <LogIn className="h-4 w-4" />
-                    <span>Entrar</span>
+                    <span>{t.navbar.login}</span>
                   </Link>
                   <Link
                     to="/login?register=true"
                     className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 rounded-lg transition-all"
                   >
                     <UserPlus className="h-4 w-4" />
-                    <span>Registrar</span>
+                    <span>{t.navbar.register}</span>
                   </Link>
                 </>
               )}
@@ -194,7 +207,7 @@ export default function Homepage({ user, setUser }) {
           <div className="md:hidden bg-gray-900/95 backdrop-blur-md border-t border-indigo-500/20 animate-fadeIn">
             <div className="px-4 py-4 space-y-3">
               <div className="border-b border-gray-700 pb-3">
-                <p className="text-sm text-gray-400 mb-2">Ferramentas</p>
+                <p className="text-sm text-gray-400 mb-2">{t.navbar.tools}</p>
                 {tools.map(tool => (
                   <button
                     key={tool.path}
@@ -212,27 +225,39 @@ export default function Homepage({ user, setUser }) {
                 onClick={() => setMenuOpen(false)}
                 className="block px-3 py-2 hover:bg-indigo-500/20 rounded-lg"
               >
-                Documentação
+                {t.navbar.docs}
               </Link>
+              
+              {/* Botão de idioma mobile */}
+              <button
+                onClick={() => setLang(lang === 'pt' ? 'en' : 'pt')}
+                className="w-full flex items-center justify-between px-3 py-2 text-gray-400 hover:text-white border border-gray-700 hover:border-indigo-500 rounded-lg transition-all"
+              >
+                <span className="flex items-center space-x-2">
+                  <Languages className="h-4 w-4" />
+                  <span>{lang === 'pt' ? 'Idioma' : 'Language'}</span>
+                </span>
+                <span className="text-indigo-400 font-medium">{lang.toUpperCase()}</span>
+              </button>
               
               {user ? (
                 <>
                   <div className="border-t border-gray-700 pt-3">
-                    <p className="text-sm text-gray-400">Logado como {user.username}</p>
+                    <p className="text-sm text-gray-400">{t.navbar.loggedAs} {user.username}</p>
                     {user.role === 'admin' && (
                       <Link 
                         to="/admin" 
                         onClick={() => setMenuOpen(false)}
                         className="block px-3 py-2 mt-2 bg-amber-500/20 text-amber-400 rounded-lg"
                       >
-                        Painel Admin
+                        {t.navbar.admin}
                       </Link>
                     )}
                     <button 
                       onClick={() => { handleLogout(); setMenuOpen(false); }}
                       className="w-full text-left px-3 py-2 mt-2 text-red-400 hover:bg-red-500/20 rounded-lg"
                     >
-                      Sair
+                      {t.navbar.logout}
                     </button>
                   </div>
                 </>
@@ -243,14 +268,14 @@ export default function Homepage({ user, setUser }) {
                     onClick={() => setMenuOpen(false)}
                     className="block px-3 py-2 hover:bg-indigo-500/20 rounded-lg"
                   >
-                    Entrar
+                    {t.navbar.login}
                   </Link>
                   <Link 
                     to="/login?register=true" 
                     onClick={() => setMenuOpen(false)}
                     className="block px-3 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 rounded-lg text-center"
                   >
-                    Registrar
+                    {t.navbar.register}
                   </Link>
                 </div>
               )}
@@ -283,7 +308,7 @@ export default function Homepage({ user, setUser }) {
               className="group flex items-center space-x-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 rounded-xl text-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-indigo-500/25"
             >
               <MessageSquare className="h-5 w-5" />
-              <span>Começar a Usar</span>
+              <span>{t.hero.cta}</span>
               <Zap className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
             
@@ -292,7 +317,7 @@ export default function Homepage({ user, setUser }) {
               className="flex items-center space-x-2 px-8 py-4 border border-indigo-500/50 hover:border-indigo-400 rounded-xl text-lg transition-colors hover:bg-indigo-500/10"
             >
               <Code className="h-5 w-5" />
-              <span>Ver Documentação</span>
+              <span>{t.hero.docsBtn}</span>
             </Link>
           </div>
         </div>
@@ -308,16 +333,15 @@ export default function Homepage({ user, setUser }) {
           </div>
           
           <h2 className="text-3xl md:text-4xl font-bold mb-4 bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
-            Tudo em um só lugar
+            {t.allInOne.title}
           </h2>
           
           <p className="text-lg text-gray-300 max-w-2xl mx-auto mb-8">
-            Acesse <strong className="text-white">dezenas de modelos de IA</strong> de diferentes provedores em uma única plataforma. 
-            De GPT a Claude, de Gemini a Llama — todos disponíveis com suporte a <strong className="text-white">OpenRouter</strong> e <strong className="text-cyan-400">GPT4Free</strong>.
+            {t.allInOne.desc}
           </p>
           
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto">
-            {['GPT-4', 'Claude', 'Gemini', 'Llama', 'Mistral', 'DeepSeek', 'Qwen', 'E mais...'].map((model, i) => (
+            {['GPT-4', 'Claude', 'Gemini', 'Llama', 'Mistral', 'DeepSeek', 'Qwen', t.allInOne.andMore].map((model, i) => (
               <div key={i} className="bg-gray-900/50 border border-indigo-500/20 rounded-lg p-3 text-center hover:border-indigo-500/50 transition-colors">
                 <span className="text-sm font-medium text-gray-300">{model}</span>
               </div>
@@ -335,25 +359,19 @@ export default function Homepage({ user, setUser }) {
                 <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center">
                   <Infinity className="h-6 w-6 text-white" />
                 </div>
-                <span className="text-sm font-medium text-emerald-400 uppercase tracking-wide">Novo</span>
+                <span className="text-sm font-medium text-emerald-400 uppercase tracking-wide">{t.g4f.badge}</span>
               </div>
               
               <h2 className="text-3xl md:text-4xl font-bold mb-4">
-                Integração com <span className="text-emerald-400">GPT4Free</span>
+                {t.g4f.title} <span className="text-emerald-400">GPT4Free</span>
               </h2>
               
               <p className="text-gray-300 mb-6">
-                Além dos modelos do OpenRouter, agora você também tem acesso aos provedores do <strong className="text-white">GPT4Free</strong> — 
-                uma coleção de APIs gratuitas que oferecem acesso a modelos como GPT-4, Claude e outros sem necessidade de API keys.
+                {t.g4f.desc}
               </p>
               
               <ul className="space-y-3">
-                {[
-                  'Dois provedores em uma interface',
-                  'Pesquise modelos facilmente',
-                  'Alterne entre OpenRouter e G4F',
-                  'Sem necessidade de configuração extra'
-                ].map((item, i) => (
+                {t.g4f.features.map((item, i) => (
                   <li key={i} className="flex items-center gap-3">
                     <div className="w-5 h-5 bg-emerald-500/20 rounded-full flex items-center justify-center">
                       <Zap className="h-3 w-3 text-emerald-400" />
@@ -367,7 +385,7 @@ export default function Homepage({ user, setUser }) {
             <div className="bg-gray-900/50 border border-emerald-500/20 rounded-2xl p-6">
               <div className="flex items-center gap-3 mb-4">
                 <Bot className="h-6 w-6 text-emerald-400" />
-                <span className="font-semibold">Seletor de Modelos</span>
+                <span className="font-semibold">{t.g4f.modelSelector}</span>
               </div>
               
               <div className="space-y-3">
@@ -379,7 +397,7 @@ export default function Homepage({ user, setUser }) {
                 <div className="relative">
                   <input 
                     type="text" 
-                    placeholder="Pesquisar modelos..."
+                    placeholder={t.g4f.searchPlaceholder}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
                     readOnly
                   />
@@ -403,7 +421,7 @@ export default function Homepage({ user, setUser }) {
       <section className="py-20 px-4 bg-gray-950/50">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
-            {featuresSection?.title || 'Recursos Poderosos'}
+            {featuresSection?.title || t.featuresSection.title}
           </h2>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -427,10 +445,9 @@ export default function Homepage({ user, setUser }) {
       <section className="py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <Shield className="h-16 w-16 text-emerald-400 mx-auto mb-6" />
-          <h2 className="text-3xl font-bold mb-4">Segurança em Primeiro Lugar</h2>
+          <h2 className="text-3xl font-bold mb-4">{t.security.title}</h2>
           <p className="text-gray-300 text-lg">
-            Seus dados são protegidos. Comandos perigosos são bloqueados automaticamente. 
-            Você tem controle total sobre suas ferramentas e conversas.
+            {t.security.desc}
           </p>
         </div>
       </section>
@@ -439,7 +456,7 @@ export default function Homepage({ user, setUser }) {
       <section className="py-20 px-4 bg-gradient-to-r from-indigo-900/30 to-cyan-900/30">
         <div className="max-w-4xl mx-auto text-center">
           <p className="text-2xl md:text-3xl font-light text-gray-300 italic">
-            ✨ Mais conteúdo em breve ✨
+            ✨ {t.comingSoon} ✨
           </p>
         </div>
       </section>
@@ -447,9 +464,9 @@ export default function Homepage({ user, setUser }) {
       {/* Donation Section */}
       <section className="py-12 px-4 bg-gray-950/50">
         <div className="max-w-2xl mx-auto text-center">
-          <h3 className="text-xl font-semibold mb-4 text-gray-300">Apoie o Projeto</h3>
+          <h3 className="text-xl font-semibold mb-4 text-gray-300">{t.donation.title}</h3>
           <p className="text-gray-400 mb-6 text-sm">
-            Se você gosta do jgspAI, considere fazer uma doação para ajudar a manter o projeto funcionando.
+            {t.donation.desc}
           </p>
           <div className="flex justify-center">
             <form action="https://www.paypal.com/donate" method="post" target="_blank">
@@ -477,8 +494,8 @@ export default function Homepage({ user, setUser }) {
             <span className="font-semibold">jgspAI</span>
           </div>
           <div className="flex items-center space-x-6 text-gray-400 text-sm">
-            <Link to="/docs" className="hover:text-white transition-colors">Documentação</Link>
-            <span>© 2024 Todos os direitos reservados</span>
+            <Link to="/docs" className="hover:text-white transition-colors">{t.navbar.docs}</Link>
+            <span>© 2024 {t.footer.rights}</span>
           </div>
         </div>
       </footer>
