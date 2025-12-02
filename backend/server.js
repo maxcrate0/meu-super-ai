@@ -534,22 +534,30 @@ app.get('/api/models/g4f', async (req, res) => {
             allModels.push({ ...m, provider: 'deepinfra' });
         });
         
-        // ============ G4F Python Server - Modelos que funcionam (testados!) ============
-        // Estes modelos usam o servidor G4F Python na Azure (gpt4free)
-        const g4fPythonModels = [
-            // Modelos que funcionam bem SEM API key
-            { id: 'g4f:auto', name: '⚡ G4F Auto (Automático)', type: 'chat', description: 'Escolhe automaticamente o melhor provider disponível' },
-            { id: 'g4f:ling-mini-2.0', name: '🦉 Ling Mini 2.0 (BAAI)', type: 'chat', description: 'Modelo chinês leve e rápido' },
-            { id: 'g4f:command-r-plus', name: '🧠 Command R+ (Cohere)', type: 'chat', description: 'Modelo Cohere avançado para raciocínio' },
-            { id: 'g4f:command-a-03-2025', name: '🧠 Command A 2025 (Cohere)', type: 'chat', description: 'Versão mais recente do Command' },
-            { id: 'g4f:gemini-2.0-flash', name: '✨ Gemini 2.0 Flash (Google)', type: 'chat', description: 'Gemini rápido via proxy' },
-            // Modelos de imagem G4F
-            { id: 'g4f:flux-dev', name: '🎨 Flux Dev (Black Forest Labs)', type: 'image', description: 'Geração de imagens Flux' },
-            { id: 'g4f:sd-3.5-large', name: '🎨 Stable Diffusion 3.5 Large', type: 'image', description: 'SD 3.5 Large via G4F' },
-        ];
-        g4fPythonModels.forEach(m => {
-            allModels.push({ ...m, provider: 'g4f-python' });
-        });
+        // ============ G4F Python Server - Modelos dinâmicos do gpt4free ============
+        // Busca TODOS os modelos de TODOS os providers funcionais do G4F Python
+        try {
+            const g4fPythonModels = await providers.listAllG4FPythonModels();
+            if (g4fPythonModels.length > 0) {
+                console.log(`[G4F] Carregados ${g4fPythonModels.length} modelos do G4F Python`);
+                g4fPythonModels.forEach(m => {
+                    allModels.push(m);
+                });
+            } else {
+                // Fallback para modelos que funcionam (testados) se o servidor estiver offline
+                const g4fFallbackModels = [
+                    { id: 'g4f:auto', name: '⚡ G4F Auto (Automático)', type: 'chat', description: 'Escolhe automaticamente o melhor provider disponível' },
+                    { id: 'g4f:ling-mini-2.0', name: '🦉 Ling Mini 2.0 (BAAI)', type: 'chat', description: 'Modelo chinês leve e rápido' },
+                    { id: 'g4f:command-r-plus', name: '🧠 Command R+ (Cohere)', type: 'chat', description: 'Modelo Cohere avançado para raciocínio' },
+                    { id: 'g4f:gemini-2.0-flash', name: '✨ Gemini 2.0 Flash (Google)', type: 'chat', description: 'Gemini rápido via proxy' },
+                ];
+                g4fFallbackModels.forEach(m => {
+                    allModels.push({ ...m, provider: 'g4f-python' });
+                });
+            }
+        } catch (g4fErr) {
+            console.error('[G4F] Erro ao buscar modelos do G4F Python:', g4fErr.message);
+        }
         
         // Adicionar modelos do Cloudflare Worker (gratuitos!)
         const cloudflareModels = [
@@ -921,6 +929,24 @@ app.post('/api/g4f/images', async (req, res) => {
         res.json(response);
     } catch (e) {
         console.error('[G4F Python] Erro na imagem:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Lista TODOS os modelos do G4F Python organizados por provider
+app.get('/api/g4f/models/all', async (req, res) => {
+    try {
+        const result = await providers.listAllG4FPythonProvidersWithModels();
+        
+        if (result.totalProviders === 0) {
+            return res.json({ 
+                error: 'Servidor G4F Python não está disponível',
+                hint: 'Execute: cd backend && docker-compose up g4f-server'
+            });
+        }
+        
+        res.json(result);
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });

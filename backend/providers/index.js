@@ -433,6 +433,57 @@ async function generateImageG4FPython(prompt, model = 'flux', provider = null) {
   }
 }
 
+/**
+ * Lista TODOS os modelos de TODOS os providers do G4F Python
+ * Retorna modelos agrupados por provider, prontos para exibição
+ */
+async function listAllG4FPythonModels() {
+  try {
+    // Busca a lista completa de modelos (endpoint otimizado)
+    const response = await axios.get(`${G4F_PYTHON_API_URL}/v1/models`, { timeout: 30000 });
+    
+    if (!response.data?.data) {
+      return [];
+    }
+    
+    // Retorna modelos no formato esperado pelo frontend
+    return response.data.data.map(m => ({
+      id: `g4f:${m.id}`,
+      name: m.id,
+      provider: 'g4f-python',
+      type: m.type || 'chat',
+      providers: m.providers || [],
+      owned_by: m.owned_by || 'g4f'
+    }));
+  } catch (e) {
+    console.error('[G4F Python] Erro ao listar todos os modelos:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Lista todos os providers com seus modelos do G4F Python
+ * Formato: { provider: "ProviderName", models: ["model1", "model2"], count: 5 }
+ */
+async function listAllG4FPythonProvidersWithModels() {
+  try {
+    const response = await axios.get(`${G4F_PYTHON_API_URL}/v1/models/all`, { timeout: 30000 });
+    
+    if (!response.data?.data) {
+      return { providers: [], totalModels: 0, totalProviders: 0 };
+    }
+    
+    return {
+      providers: response.data.data,
+      totalModels: response.data.total_unique_models || 0,
+      totalProviders: response.data.total_providers || 0
+    };
+  } catch (e) {
+    console.error('[G4F Python] Erro ao listar providers com modelos:', e.message);
+    return { providers: [], totalModels: 0, totalProviders: 0 };
+  }
+}
+
 module.exports = {
   PROVIDERS,
   getProviderConfig,
@@ -448,5 +499,7 @@ module.exports = {
   listG4FPythonModels,
   listG4FPythonProviders,
   chatG4FPython,
-  generateImageG4FPython
+  generateImageG4FPython,
+  listAllG4FPythonModels,
+  listAllG4FPythonProvidersWithModels
 };

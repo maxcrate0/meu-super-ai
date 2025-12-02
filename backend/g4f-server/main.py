@@ -76,46 +76,115 @@ async def root():
 
 @app.get("/v1/models")
 async def list_models():
-    """Lista todos os modelos disponíveis"""
+    """Lista todos os modelos disponíveis de todos os providers funcionais e gratuitos"""
     try:
         model_list = []
+        seen_models = {}  # Para evitar duplicatas, mas guardar providers
         
-        # Modelos de chat
-        chat_models = [
-            "gpt-4", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo",
-            "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet", "claude-3-haiku",
-            "claude-3.5-sonnet", "gemini-pro", "gemini-1.5-pro", "gemini-2.0-flash",
-            "llama-3.1-70b", "llama-3.1-8b", "llama-3.2-90b", "llama-3.3-70b",
-            "mixtral-8x7b", "mistral-7b", "mistral-large",
-            "deepseek-v3", "deepseek-r1", "deepseek-chat",
-            "qwen-2.5-72b", "qwen-2.5-coder-32b", "qwq-32b",
-            "phi-4", "phi-3.5", "codestral", "command-r-plus",
-        ]
+        # Coleta modelos de todos os providers funcionais e sem autenticação
+        for provider in __providers__:
+            if not provider.working:
+                continue
+            if getattr(provider, 'needs_auth', False):
+                continue
+            
+            provider_name = provider.__name__
+            provider_models = []
+            
+            # Tenta obter modelos de várias formas
+            if hasattr(provider, 'models') and provider.models:
+                if isinstance(provider.models, list):
+                    provider_models = provider.models
+                elif isinstance(provider.models, dict):
+                    provider_models = list(provider.models.keys())
+            
+            if not provider_models and hasattr(provider, 'get_models'):
+                try:
+                    provider_models = provider.get_models() or []
+                except:
+                    pass
+            
+            # Adiciona modelos ao dicionário
+            for model in provider_models:
+                if model:
+                    model_name = str(model)
+                    if model_name not in seen_models:
+                        seen_models[model_name] = {
+                            "id": model_name,
+                            "object": "model",
+                            "type": "chat",
+                            "owned_by": "g4f",
+                            "providers": [provider_name]
+                        }
+                    else:
+                        if provider_name not in seen_models[model_name]["providers"]:
+                            seen_models[model_name]["providers"].append(provider_name)
         
-        for model in chat_models:
-            model_list.append({
-                "id": model,
-                "object": "model",
-                "type": "chat",
-                "owned_by": "g4f"
-            })
+        # Converte para lista
+        model_list = list(seen_models.values())
         
-        # Modelos de imagem
-        image_models = [
-            "flux", "flux-pro", "flux-dev", "flux-schnell",
-            "stable-diffusion-3", "stable-diffusion-xl", "sdxl-turbo",
-            "dall-e-3", "midjourney"
-        ]
+        # Ordena por nome
+        model_list.sort(key=lambda x: x["id"].lower())
         
-        for model in image_models:
-            model_list.append({
-                "id": model,
-                "object": "model", 
-                "type": "image",
-                "owned_by": "g4f"
-            })
+        return {
+            "data": model_list, 
+            "object": "list",
+            "total": len(model_list)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/v1/models/all")
+async def list_all_models_with_providers():
+    """Lista TODOS os modelos organizados por provider"""
+    try:
+        providers_with_models = []
+        all_unique_models = set()
         
-        return {"data": model_list, "object": "list"}
+        for provider in __providers__:
+            if not provider.working:
+                continue
+            if getattr(provider, 'needs_auth', False):
+                continue
+            
+            provider_name = provider.__name__
+            provider_models = []
+            
+            # Tenta obter modelos de várias formas
+            if hasattr(provider, 'models') and provider.models:
+                if isinstance(provider.models, list):
+                    provider_models = [str(m) for m in provider.models if m]
+                elif isinstance(provider.models, dict):
+                    provider_models = list(provider.models.keys())
+            
+            if not provider_models and hasattr(provider, 'get_models'):
+                try:
+                    result = provider.get_models()
+                    if result:
+                        provider_models = [str(m) for m in result if m]
+                except:
+                    pass
+            
+            if provider_models:
+                for m in provider_models:
+                    all_unique_models.add(m)
+                    
+                providers_with_models.append({
+                    "provider": provider_name,
+                    "models": sorted(provider_models),
+                    "count": len(provider_models),
+                    "url": getattr(provider, 'url', None)
+                })
+        
+        # Ordena por quantidade de modelos (mais modelos primeiro)
+        providers_with_models.sort(key=lambda x: -x["count"])
+        
+        return {
+            "data": providers_with_models,
+            "total_providers": len(providers_with_models),
+            "total_unique_models": len(all_unique_models),
+            "object": "list"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
