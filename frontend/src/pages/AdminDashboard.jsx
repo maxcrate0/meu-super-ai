@@ -4,7 +4,8 @@ import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
   BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
-  Send, Mail, FileText, Layout, Database, Zap, Eye, EyeOff, TrendingUp, Trophy
+  Send, Mail, FileText, Layout, Database, Zap, Eye, EyeOff, TrendingUp, Trophy,
+  Menu, ChevronDown, ChevronRight, Shield, Activity
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -466,7 +467,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex font-sans">
+    <div className="min-h-screen bg-[#0f0f0f] text-white flex font-sans">
       {/* Overlay Mobile */}
       {showMobileMenu && (
         <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setShowMobileMenu(false)} />
@@ -474,105 +475,101 @@ export default function AdminDashboard() {
 
       {/* Sidebar */}
       <div className={`
-        fixed md:relative z-50 w-72 h-full bg-gray-800 flex flex-col border-r border-gray-700
+        fixed md:relative z-50 w-64 h-full bg-[#171717] flex flex-col border-r border-[#2a2a2a]
         transform transition-transform duration-300 ease-in-out
         ${showMobileMenu ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <Settings className="text-yellow-500"/> {t.title}
-          </h1>
+        <div className="p-4 border-b border-[#2a2a2a] flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center">
+            <Shield size={20}/>
+          </div>
+          <div>
+            <h1 className="font-semibold">{t.title}</h1>
+            <p className="text-xs text-gray-500">Painel de controle</p>
+          </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats Compactas */}
         {stats && (
-          <div className="p-4 border-b border-gray-700 grid grid-cols-3 gap-2 text-center">
-            <div className="bg-gray-700 p-2 rounded">
-              <div className="text-lg font-bold text-blue-400">{stats.totalUsers}</div>
-              <div className="text-xs text-gray-400">{t.users}</div>
+          <div className="p-3 border-b border-[#2a2a2a] flex gap-2 text-center">
+            <div className="flex-1 bg-[#1f1f1f] p-2 rounded-lg">
+              <div className="text-sm font-bold text-blue-400">{stats.totalUsers}</div>
+              <div className="text-[10px] text-gray-500">{t.users}</div>
             </div>
-            <div className="bg-gray-700 p-2 rounded">
-              <div className="text-lg font-bold text-green-400">{stats.totalChats}</div>
-              <div className="text-xs text-gray-400">{t.chats}</div>
+            <div className="flex-1 bg-[#1f1f1f] p-2 rounded-lg">
+              <div className="text-sm font-bold text-green-400">{stats.totalChats}</div>
+              <div className="text-[10px] text-gray-500">{t.chats}</div>
             </div>
-            <div className="bg-gray-700 p-2 rounded">
-              <div className="text-lg font-bold text-purple-400">{stats.totalRequests}</div>
-              <div className="text-xs text-gray-400">{t.requests}</div>
+            <div className="flex-1 bg-[#1f1f1f] p-2 rounded-lg">
+              <div className="text-sm font-bold text-purple-400">{stats.totalRequests}</div>
+              <div className="text-[10px] text-gray-500">{t.requests}</div>
             </div>
           </div>
         )}
 
-        {/* API Key Config */}
-        <div className="p-4 border-b border-gray-700 space-y-2">
-          <button 
-            onClick={() => setShowApiKeyModal(true)}
-            className="w-full bg-yellow-600 hover:bg-yellow-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Key size={18}/> {t.apiKeys}
-          </button>
-          <div className="flex flex-col gap-1">
+        {/* Quick Actions - Compactas */}
+        <div className="p-2 border-b border-[#2a2a2a]">
+          <div className="grid grid-cols-2 gap-1.5">
+            <button 
+              onClick={() => setShowApiKeyModal(true)}
+              className="bg-[#1f1f1f] hover:bg-[#2a2a2a] p-2.5 rounded-lg flex flex-col items-center gap-1 transition text-xs"
+            >
+              <Key size={16} className="text-yellow-500"/>
+              <span className="text-gray-400">API Keys</span>
+            </button>
+            <button 
+              onClick={() => setShowModelModal(true)}
+              className="bg-[#1f1f1f] hover:bg-[#2a2a2a] p-2.5 rounded-lg flex flex-col items-center gap-1 transition text-xs"
+            >
+              <Cpu size={16} className="text-purple-500"/>
+              <span className="text-gray-400">Modelos</span>
+            </button>
+            <button 
+              onClick={() => setShowSystemPromptModal(true)}
+              className="bg-[#1f1f1f] hover:bg-[#2a2a2a] p-2.5 rounded-lg flex flex-col items-center gap-1 transition text-xs"
+            >
+              <FileText size={16} className="text-green-500"/>
+              <span className="text-gray-400">Prompt</span>
+            </button>
+            <Link 
+              to="/admin/content"
+              className="bg-[#1f1f1f] hover:bg-[#2a2a2a] p-2.5 rounded-lg flex flex-col items-center gap-1 transition text-xs"
+            >
+              <Layout size={16} className="text-pink-500"/>
+              <span className="text-gray-400">Conteúdo</span>
+            </Link>
+          </div>
+          
+          {/* Analytics Buttons */}
+          <div className="flex gap-1.5 mt-1.5">
+            <button 
+              onClick={() => { setShowGroqPanel(true); loadGroqData(); }}
+              className="flex-1 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 p-2 rounded-lg flex items-center justify-center gap-1.5 transition text-xs"
+            >
+              <Zap size={14}/> Groq
+            </button>
+            <button 
+              onClick={() => { setShowModelsPanel(true); loadModelsData(); }}
+              className="flex-1 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 p-2 rounded-lg flex items-center justify-center gap-1.5 transition text-xs"
+            >
+              <Activity size={14}/> Analytics
+            </button>
+          </div>
+          
+          {/* Status das APIs */}
+          <div className="mt-2 flex gap-1.5 text-[10px]">
             {apiKeyConfig?.hasGlobalApiKey && (
-              <p className="text-xs text-green-400 text-center">
-                ✓ OpenRouter: {apiKeyConfig.globalApiKeyPreview}
-              </p>
+              <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">OR ✓</span>
             )}
             {apiKeyConfig?.hasGroqApiKey && (
-              <p className="text-xs text-emerald-400 text-center">
-                ⚡ Groq: {apiKeyConfig.groqApiKeyPreview}
-              </p>
+              <span className="bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-full">Groq ✓</span>
             )}
           </div>
-          
-          <button 
-            onClick={() => setShowModelModal(true)}
-            className="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Cpu size={18}/> {t.defaultModels}
-          </button>
-          <div className="text-xs text-purple-400 text-center mt-1 flex justify-center gap-2">
-            {defaultModels.text && <span title={t.modelsModal.text}>Txt: ✓</span>}
-            {defaultModels.image && <span title={t.modelsModal.image}>Img: ✓</span>}
-            {defaultModels.audio && <span title={t.modelsModal.audio}>Aud: ✓</span>}
-            {defaultModels.video && <span title={t.modelsModal.video}>Vid: ✓</span>}
-          </div>
-          
-          <button 
-            onClick={() => setShowSystemPromptModal(true)}
-            className="w-full bg-green-600 hover:bg-green-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <FileText size={18}/> {t.systemPrompt}
-          </button>
-          {globalSystemPrompt && (
-            <p className="text-xs text-green-400 text-center truncate">
-              ✓ ({globalSystemPrompt.length} chars)
-            </p>
-          )}
-          
-          <Link 
-            to="/admin/content"
-            className="w-full bg-pink-600 hover:bg-pink-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Layout size={18}/> {t.contentEditor}
-          </Link>
-          
-          <button 
-            onClick={() => { setShowGroqPanel(true); loadGroqData(); }}
-            className="w-full bg-orange-600 hover:bg-orange-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Zap size={18}/> Groq Analytics
-          </button>
-          
-          <button 
-            onClick={() => { setShowModelsPanel(true); loadModelsData(); }}
-            className="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Cpu size={18}/> Gerenciar Modelos
-          </button>
         </div>
 
         {/* Users List */}
         <div className="flex-1 overflow-y-auto">
-          <div className="p-2 text-xs text-gray-500 uppercase tracking-wide flex items-center justify-between">
+          <div className="p-2 text-xs text-gray-500 uppercase tracking-wide flex items-center justify-between px-3">
             <span>{t.users} ({users.length})</span>
             <button onClick={loadUsers} className="hover:text-white">
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''}/>
@@ -586,147 +583,162 @@ export default function AdminDashboard() {
             <div 
               key={u._id} 
               onClick={() => selectUser(u._id)} 
-              className={`p-4 border-b border-gray-700 cursor-pointer transition ${
-                selectedUser === u._id ? 'bg-blue-900/30 border-l-4 border-l-blue-500' : 'hover:bg-gray-750'
+              className={`p-3 mx-2 mb-1 rounded-lg cursor-pointer transition ${
+                selectedUser === u._id ? 'bg-blue-600/20 ring-1 ring-blue-500' : 'hover:bg-[#1f1f1f]'
               }`}
             >
-              <div className="font-medium flex items-center gap-2">
-                <User size={16} className={u.role === 'admin' ? 'text-yellow-500' : 'text-gray-400'}/>
+              <div className="font-medium flex items-center gap-2 text-sm">
+                <User size={14} className={u.role === 'admin' ? 'text-yellow-500' : 'text-gray-500'}/>
                 {u.username}
-                {u.role === 'admin' && <span className="text-xs bg-yellow-600 px-2 py-0.5 rounded">ADMIN</span>}
+                {u.role === 'admin' && <span className="text-[10px] bg-yellow-600/30 text-yellow-400 px-1.5 py-0.5 rounded">ADMIN</span>}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-gray-500 mt-1 ml-5">
                 {u.displayName && <span className="text-gray-400">{u.displayName} • </span>}
-                Requests: {u.usage?.requests || 0}
+                {u.usage?.requests || 0} reqs
               </div>
             </div>
           ))}
         </div>
 
-        <div className="p-4 border-t border-gray-700">
-          <Link to="/" className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition">
-            <ChevronLeft size={18}/> {texts.docs.backToHome}
+        <div className="p-3 border-t border-[#2a2a2a]">
+          <Link to="/" className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm p-2 rounded-lg hover:bg-[#1f1f1f]">
+            <ChevronLeft size={16}/> {texts.docs.backToHome}
           </Link>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 bg-gray-850 overflow-y-auto">
+      <div className="flex-1 bg-[#0f0f0f] overflow-y-auto">
         {/* Mobile Header */}
-        <div className="md:hidden bg-gray-800 p-4 flex items-center gap-4 border-b border-gray-700">
+        <div className="md:hidden bg-[#171717] p-4 flex items-center gap-4 border-b border-[#2a2a2a]">
           <button onClick={() => setShowMobileMenu(true)} className="p-2">
-            <Users size={24}/>
+            <Menu size={24}/>
           </button>
-          <span className="font-bold">{t.title}</span>
+          <span className="font-semibold">{t.title}</span>
         </div>
 
         {!userDetails ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             <div className="text-center">
-              <Users size={48} className="mx-auto mb-4 opacity-50"/>
-              <p>{texts.admin.selectUser || 'Selecione um usuário para ver detalhes'}</p>
+              <div className="w-16 h-16 rounded-2xl bg-[#1f1f1f] flex items-center justify-center mx-auto mb-4">
+                <Users size={32} className="text-gray-600"/>
+              </div>
+              <p className="text-gray-400">{texts.admin.selectUser || 'Selecione um usuário'}</p>
             </div>
           </div>
         ) : (
-          <div className="p-6">
+          <div className="p-6 max-w-4xl mx-auto">
             {/* User Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8 gap-4">
-              <div>
-                <h1 className="text-2xl font-bold flex items-center gap-3">
-                  <User className="text-blue-500"/>
-                  {userDetails.user.displayName || userDetails.user.username}
-                  {userDetails.user.role === 'admin' && (
-                    <span className="text-sm bg-yellow-600 px-2 py-1 rounded">ADMIN</span>
+            <div className="bg-[#171717] rounded-2xl p-6 mb-6 border border-[#2a2a2a]">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold">
+                    {(userDetails.user.displayName || userDetails.user.username).charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-semibold flex items-center gap-2">
+                      {userDetails.user.displayName || userDetails.user.username}
+                      {userDetails.user.role === 'admin' && (
+                        <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded">ADMIN</span>
+                      )}
+                    </h1>
+                    <p className="text-gray-500 text-sm">@{userDetails.user.username}</p>
+                    {userDetails.user.bio && (
+                      <p className="text-gray-400 text-xs mt-1 italic max-w-md">"{userDetails.user.bio}"</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setShowMessageModal(true)}
+                    className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-3 py-2 rounded-lg flex items-center gap-2 transition text-sm"
+                  >
+                    <Send size={14}/> Mensagem
+                  </button>
+                  {userDetails.user.role !== 'admin' && (
+                    <button 
+                      onClick={() => deleteUser(userDetails.user._id)}
+                      className="bg-red-600/20 hover:bg-red-600/30 text-red-400 px-3 py-2 rounded-lg flex items-center gap-2 transition text-sm"
+                    >
+                      <Trash2 size={14}/> Apagar
+                    </button>
                   )}
-                </h1>
-                <p className="text-gray-400 text-sm mt-1">@{userDetails.user.username}</p>
-                {userDetails.user.bio && (
-                  <p className="text-gray-500 text-sm mt-2 italic">"{userDetails.user.bio}"</p>
-                )}
+                </div>
               </div>
-              {userDetails.user.role !== 'admin' && (
-                <button 
-                  onClick={() => deleteUser(userDetails.user._id)}
-                  className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg flex items-center gap-2 transition"
-                >
-                  <Trash2 size={18}/> {t.deleteUser}
-                </button>
-              )}
-              <button 
-                onClick={() => setShowMessageModal(true)}
-                className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg flex items-center gap-2 transition"
-              >
-                <Mail size={18}/> {t.sendMessage}
-              </button>
             </div>
 
             {/* User Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-              <div className="bg-gray-800 p-4 rounded-lg">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <div className="bg-[#171717] p-4 rounded-xl border border-[#2a2a2a]">
                 <div className="text-2xl font-bold text-blue-400">{userDetails.chats.length}</div>
-                <div className="text-sm text-gray-400">{t.chats}</div>
+                <div className="text-xs text-gray-500">{t.chats}</div>
               </div>
-              <div className="bg-gray-800 p-4 rounded-lg">
+              <div className="bg-[#171717] p-4 rounded-xl border border-[#2a2a2a]">
                 <div className="text-2xl font-bold text-green-400">{userDetails.tools.length}</div>
-                <div className="text-sm text-gray-400">{t.tools}</div>
+                <div className="text-xs text-gray-500">{t.tools}</div>
               </div>
-              <div className="bg-gray-800 p-4 rounded-lg">
+              <div className="bg-[#171717] p-4 rounded-xl border border-[#2a2a2a]">
                 <div className="text-2xl font-bold text-purple-400">{userDetails.user.usage?.requests || 0}</div>
-                <div className="text-sm text-gray-400">{t.requests}</div>
+                <div className="text-xs text-gray-500">{t.requests}</div>
               </div>
-              <div className="bg-gray-800 p-4 rounded-lg">
+              <div className="bg-[#171717] p-4 rounded-xl border border-[#2a2a2a]">
                 <div className="text-2xl font-bold text-yellow-400">{userDetails.user.hasPersonalKey ? '✓' : '✗'}</div>
-                <div className="text-sm text-gray-400">API Key</div>
+                <div className="text-xs text-gray-500">API Key</div>
               </div>
             </div>
 
             {/* Chats */}
-            <div className="mb-8">
-              <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                <MessageSquare size={20}/> {t.chats} ({userDetails.chats.length})
+            <div className="mb-6">
+              <h2 className="font-semibold text-sm mb-3 flex items-center gap-2 text-gray-400">
+                <MessageSquare size={16}/> {t.chats} ({userDetails.chats.length})
               </h2>
               {userDetails.chats.length === 0 ? (
-                <p className="text-gray-500 italic">Nenhum chat encontrado</p>
+                <p className="text-gray-500 text-sm italic">Nenhum chat encontrado</p>
               ) : (
-                <div className="grid gap-2">
-                  {userDetails.chats.map(c => (
+                <div className="space-y-2">
+                  {userDetails.chats.slice(0, 10).map(c => (
                     <div 
                       key={c._id} 
-                      className="bg-gray-800 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-750 transition cursor-pointer"
+                      className="bg-[#171717] p-3 rounded-xl flex items-center justify-between gap-3 hover:bg-[#1f1f1f] transition cursor-pointer border border-[#2a2a2a]"
                       onClick={() => openChat(c._id)}
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{c.title}</div>
-                        <div className="text-xs text-gray-500">{c.model}</div>
+                        <div className="font-medium text-sm truncate">{c.title}</div>
+                        <div className="text-xs text-gray-500">{c.model?.split('/').pop() || 'N/A'}</div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-400">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">
                           {new Date(c.updatedAt).toLocaleDateString('pt-BR')}
                         </span>
                         <button 
                           onClick={e => { e.stopPropagation(); deleteChat(c._id); }}
-                          className="text-red-400 hover:text-red-300 p-2"
+                          className="text-red-400 hover:text-red-300 p-1.5 rounded-lg hover:bg-red-500/10"
                         >
-                          <Trash2 size={16}/>
+                          <Trash2 size={14}/>
                         </button>
                       </div>
                     </div>
                   ))}
+                  {userDetails.chats.length > 10 && (
+                    <p className="text-xs text-gray-500 text-center py-2">
+                      + {userDetails.chats.length - 10} mais chats
+                    </p>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Tools */}
             <div>
-              <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                <Wrench size={20}/> {t.tools} ({userDetails.tools.length})
+              <h2 className="font-semibold text-sm mb-3 flex items-center gap-2 text-gray-400">
+                <Wrench size={16}/> {t.tools} ({userDetails.tools.length})
               </h2>
               {userDetails.tools.length === 0 ? (
-                <p className="text-gray-500 italic">Nenhuma ferramenta encontrada</p>
+                <p className="text-gray-500 text-sm italic">Nenhuma ferramenta encontrada</p>
               ) : (
-                <div className="grid gap-4">
+                <div className="space-y-2">
                   {userDetails.tools.map(t => (
-                    <div key={t._id} className="bg-gray-800 p-4 rounded-lg">
+                    <div key={t._id} className="bg-[#171717] p-3 rounded-xl border border-[#2a2a2a]">
                       <div className="flex items-center justify-between">
                         <div className="font-bold text-blue-400">{t.name}</div>
                         <button 
