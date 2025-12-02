@@ -3,25 +3,22 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
-  Cpu, Settings, LogOut, Plus, MessageSquare, Trash2, Edit2, X, Check, 
+  Settings, LogOut, Plus, MessageSquare, Trash2, Edit2, X, Check, 
   Sun, Moon, Menu, User, Key, Palette, Send, Loader2, RefreshCw, Zap,
-  Paperclip, Image, File, Wrench, Code, Terminal, Globe, ChevronDown,
-  Search, Database, Layers
+  Paperclip, Image, File, Wrench, ChevronDown, ChevronUp,
+  Search, Database, Layers, Sparkles, Copy, RotateCcw, PanelLeftClose, PanelLeft
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
-// URL das Azure Functions para operações pesadas (chat com IA)
-// Se não configurado, usa o backend normal
 const RAW_FUNCTIONS_URL = import.meta.env.VITE_FUNCTIONS_URL || '';
 const FUNCTIONS_URL = RAW_FUNCTIONS_URL.endsWith('/') ? RAW_FUNCTIONS_URL.slice(0, -1) : RAW_FUNCTIONS_URL;
 
 axios.defaults.timeout = 120000;
 
 export default function ChatInterface({ user, setUser }) {
-  // i18n
   const { texts } = useLanguage();
   const t = texts.chat;
   const tUser = texts.userSettings;
@@ -32,7 +29,7 @@ export default function ChatInterface({ user, setUser }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [swarmEnabled, setSwarmEnabled] = useState(true); // Habilita ferramentas Swarm no chat
+  const [swarmEnabled, setSwarmEnabled] = useState(true);
   
   // Arquivos anexados
   const [attachedFiles, setAttachedFiles] = useState([]);
@@ -54,16 +51,18 @@ export default function ChatInterface({ user, setUser }) {
     video: ""
   });
   const [activeModelTab, setActiveModelTab] = useState('text');
-  const [selectedProvider, setSelectedProvider] = useState("openrouter"); // "openrouter" ou "g4f"
+  const [selectedProvider, setSelectedProvider] = useState("openrouter");
   const [modelSearch, setModelSearch] = useState("");
   const [userSystemPrompt, setUserSystemPrompt] = useState("");
   
   // UI States
   const [showChatConfig, setShowChatConfig] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [editingChatId, setEditingChatId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
   
   // Tema e configurações do usuário
   const [theme, setTheme] = useState(user?.theme || 'dark');
@@ -74,6 +73,9 @@ export default function ChatInterface({ user, setUser }) {
   
   // Mensagem do admin
   const [adminNotification, setAdminNotification] = useState(null);
+  
+  // Textarea auto-resize
+  const textareaRef = useRef(null);
 
   const token = localStorage.getItem('token');
   const messagesEndRef = useRef(null);
@@ -96,6 +98,71 @@ export default function ChatInterface({ user, setUser }) {
   useEffect(() => {
     document.documentElement.classList.toggle('light-theme', theme === 'light');
   }, [theme]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [input]);
+
+  // Copiar mensagem para clipboard
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Regenerar última resposta
+  const regenerateResponse = async () => {
+    if (messages.length < 2 || loading) return;
+    const lastUserMsgIndex = messages.map((m, i) => ({ ...m, i })).filter(m => m.role === 'user').pop()?.i;
+    if (lastUserMsgIndex === undefined) return;
+    
+    const newMessages = messages.slice(0, lastUserMsgIndex + 1);
+    setMessages(newMessages);
+    
+    // Re-enviar última mensagem do usuário
+    const lastUserMsg = newMessages[lastUserMsgIndex];
+    setLoading(true);
+    
+    try {
+      const endpoint = swarmEnabled ? '/chat/tools' : '/chat';
+      const payload = { 
+        chatId: activeChatId, 
+        messages: newMessages.map(m => ({ role: m.role, content: m.content })), 
+        model: selectedModels.text,
+        models: selectedModels,
+        provider: selectedProvider,
+        userSystemPrompt,
+        enableSwarm: swarmEnabled
+      };
+
+      const baseUrl = FUNCTIONS_URL || API_URL;
+      const res = await axios.post(baseUrl + endpoint, payload, {
+        headers: { Authorization: 'Bearer ' + token },
+        timeout: 300000
+      });
+
+      const reply = {
+        role: 'assistant',
+        content: res.data.content,
+        provider: selectedProvider,
+        ...(res.data.swarm_used && { swarm_used: true, swarm_iterations: res.data.swarm_iterations })
+      };
+
+      setMessages([...newMessages, reply]);
+    } catch(err) {
+      let errorMsg = err.code === 'ECONNABORTED' 
+        ? t.timeout
+        : err.response?.data?.error || err.message;
+      setMessages([...newMessages, { role: 'assistant', content: `❌ ${t.error}: ${errorMsg}` }]);
+    }
+    setLoading(false);
+  };
 
   const loadProfile = async () => {
     try {
@@ -424,40 +491,51 @@ export default function ChatInterface({ user, setUser }) {
 
   // Classes baseadas no tema
   const isDark = theme === 'dark';
-  const bgMain = isDark ? 'bg-gray-900' : 'bg-gray-100';
-  const bgSidebar = isDark ? 'bg-gray-800' : 'bg-white';
-  const bgCard = isDark ? 'bg-gray-800' : 'bg-white';
-  const bgInput = isDark ? 'bg-gray-900' : 'bg-gray-50';
+  const bgMain = isDark ? 'bg-[#212121]' : 'bg-white';
+  const bgSidebar = isDark ? 'bg-[#171717]' : 'bg-gray-50';
+  const bgCard = isDark ? 'bg-[#2f2f2f]' : 'bg-gray-100';
+  const bgInput = isDark ? 'bg-[#2f2f2f]' : 'bg-gray-100';
   const textMain = isDark ? 'text-white' : 'text-gray-900';
   const textMuted = isDark ? 'text-gray-400' : 'text-gray-500';
-  const borderColor = isDark ? 'border-gray-700' : 'border-gray-200';
+  const textSecondary = isDark ? 'text-gray-300' : 'text-gray-700';
+  const borderColor = isDark ? 'border-[#3f3f3f]' : 'border-gray-200';
+  const hoverBg = isDark ? 'hover:bg-[#2f2f2f]' : 'hover:bg-gray-200';
+
+  // Nome do modelo atual
+  const getCurrentModelName = () => {
+    if (selectedProvider === 'openrouter') {
+      return models.find(m => m.id === selectedModels.text)?.name || selectedModels.text.split('/').pop();
+    } else if (selectedProvider === 'groq') {
+      return g4fModels.find(m => m.id === selectedModels.text && m.provider === 'groq')?.name || selectedModels.text;
+    } else {
+      return g4fModels.find(m => m.id === selectedModels.text)?.name || selectedModels.text;
+    }
+  };
 
   return (
-    <div className={`flex h-screen ${bgMain} ${textMain} font-sans`}>
+    <div className={`flex h-screen ${bgMain} ${textMain} font-sans overflow-hidden`}>
       {/* Notificação do Admin */}
       {adminNotification && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[100]">
-          <div className={`${bgSidebar} rounded-xl shadow-2xl w-full max-w-md animate-fade-in`}>
+          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-md animate-fade-in`}>
             <div className={`p-4 border-b ${borderColor} flex items-center gap-3`}>
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                 <User size={20} className="text-white"/>
               </div>
               <div>
-                <h2 className="font-bold text-lg">{t.adminMessage}</h2>
+                <h2 className="font-semibold">{t.adminMessage}</h2>
                 <p className={`text-xs ${textMuted}`}>
                   {adminNotification.sentAt && new Date(adminNotification.sentAt).toLocaleString()}
                 </p>
               </div>
             </div>
             <div className="p-6">
-              <div className={`${isDark ? 'bg-blue-900/30 border-blue-600/50' : 'bg-blue-50 border-blue-200'} border p-4 rounded-lg`}>
-                <p className="whitespace-pre-wrap">{adminNotification.message}</p>
-              </div>
+              <p className="whitespace-pre-wrap">{adminNotification.message}</p>
             </div>
             <div className={`p-4 border-t ${borderColor}`}>
               <button 
                 onClick={dismissAdminMessage}
-                className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg transition font-medium"
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 p-3 rounded-xl transition font-medium"
               >
                 {t.understood}
               </button>
@@ -466,49 +544,47 @@ export default function ChatInterface({ user, setUser }) {
         </div>
       )}
 
-      {/* Overlay para mobile */}
-      {showSidebar && (
-        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setShowSidebar(false)} />
+      {/* Mobile Sidebar Overlay */}
+      {showMobileSidebar && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setShowMobileSidebar(false)} />
       )}
 
       {/* Sidebar */}
-      <div className={`
-        fixed md:relative z-50 w-72 h-full ${bgSidebar} flex flex-col ${borderColor} border-r
-        transform transition-transform duration-300 ease-in-out
-        ${showSidebar ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      <aside className={`
+        ${sidebarOpen ? 'w-64' : 'w-0 md:w-0'} 
+        ${showMobileSidebar ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'}
+        fixed md:relative z-50 h-full ${bgSidebar} flex flex-col 
+        transition-all duration-300 ease-in-out overflow-hidden
       `}>
-        <div className={`p-4 ${borderColor} border-b`}>
-          <button onClick={createNewChat} className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg flex items-center justify-center gap-2 transition font-medium">
-            <Plus size={18}/> {t.newChat}
-          </button>
+        {/* Sidebar Header */}
+        <div className="p-3 flex flex-col gap-2">
           <button 
-            onClick={() => { setSwarmEnabled(!swarmEnabled); setShowSidebar(false); }}
-            className={`mt-2 w-full p-3 rounded-lg flex items-center justify-center gap-2 transition font-medium ${
-              swarmEnabled ? 'bg-purple-600 hover:bg-purple-500' : (isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300')
-            }`}
-            title={swarmEnabled ? t.swarmDesc : ""}
+            onClick={createNewChat}
+            className={`w-full ${hoverBg} p-3 rounded-xl flex items-center gap-3 transition border ${borderColor}`}
           >
-            <Zap size={18}/> {swarmEnabled ? t.swarmOn : t.swarmOff}
+            <Plus size={18} className={textMuted}/>
+            <span className="text-sm font-medium">{t.newChat}</span>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
-          <div className={`text-xs ${textMuted} mb-2 px-2 uppercase tracking-wide`}>{t.history}</div>
-          {chats.length === 0 && <div className={`text-sm ${textMuted} px-2`}>{t.noChats}</div>}
+        {/* Chat History */}
+        <div className="flex-1 overflow-y-auto px-2">
+          <div className={`text-xs ${textMuted} mb-2 px-2 font-medium`}>{t.history}</div>
+          {chats.length === 0 && <div className={`text-xs ${textMuted} px-2`}>{t.noChats}</div>}
           {chats.map(chat => (
             <div 
               key={chat._id} 
               onClick={() => selectChat(chat._id)} 
-              className={`group p-3 rounded-lg mb-1 cursor-pointer flex justify-between items-center transition ${
+              className={`group p-3 rounded-xl mb-1 cursor-pointer flex justify-between items-center transition ${
                 activeChatId === chat._id 
-                  ? (isDark ? 'bg-gray-700' : 'bg-blue-50') 
-                  : (isDark ? 'hover:bg-gray-750' : 'hover:bg-gray-100')
+                  ? bgCard
+                  : hoverBg
               }`}
             >
               {editingChatId === chat._id ? (
                 <div className="flex gap-2 w-full" onClick={e => e.stopPropagation()}>
                   <input 
-                    className={`${bgInput} text-sm w-full p-2 rounded ${borderColor} border`}
+                    className={`${bgInput} text-sm w-full p-2 rounded-lg ${borderColor} border focus:outline-none focus:ring-1 focus:ring-blue-500`}
                     autoFocus 
                     value={editTitle} 
                     onChange={e => setEditTitle(e.target.value)}
@@ -520,15 +596,15 @@ export default function ChatInterface({ user, setUser }) {
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="flex items-center gap-2 overflow-hidden flex-1">
                     <MessageSquare size={16} className={textMuted + ' shrink-0'}/>
                     <span className="text-sm truncate">{chat.title}</span>
                   </div>
-                  <div className="hidden group-hover:flex gap-1">
-                    <button onClick={e => { e.stopPropagation(); setEditingChatId(chat._id); setEditTitle(chat.title); }} className={`${textMuted} hover:text-blue-400`}>
+                  <div className="hidden group-hover:flex gap-1 shrink-0">
+                    <button onClick={e => { e.stopPropagation(); setEditingChatId(chat._id); setEditTitle(chat.title); }} className={`${textMuted} hover:text-blue-400 p-1`}>
                       <Edit2 size={14}/>
                     </button>
-                    <button onClick={e => deleteChat(e, chat._id)} className={`${textMuted} hover:text-red-400`}>
+                    <button onClick={e => deleteChat(e, chat._id)} className={`${textMuted} hover:text-red-400 p-1`}>
                       <Trash2 size={14}/>
                     </button>
                   </div>
@@ -538,238 +614,460 @@ export default function ChatInterface({ user, setUser }) {
           ))}
         </div>
 
-        <div className={`p-4 ${borderColor} border-t space-y-2`}>
+        {/* Sidebar Footer */}
+        <div className={`p-3 ${borderColor} border-t space-y-1`}>
+          {/* Swarm Toggle */}
+          <button 
+            onClick={() => setSwarmEnabled(!swarmEnabled)}
+            className={`w-full p-3 rounded-xl flex items-center gap-3 transition ${
+              swarmEnabled ? 'bg-purple-600/20 text-purple-400' : hoverBg + ' ' + textMuted
+            }`}
+          >
+            <Zap size={18}/>
+            <span className="text-sm">{swarmEnabled ? t.swarmOn : t.swarmOff}</span>
+          </button>
+          
+          {/* Tools Button */}
+          <button 
+            onClick={() => setShowToolsPanel(true)}
+            className={`w-full p-3 rounded-xl flex items-center gap-3 transition ${hoverBg} ${textMuted} hover:${textMain}`}
+          >
+            <Wrench size={18}/>
+            <span className="text-sm flex-1 text-left">{t.myTools}</span>
+            {userTools.length > 0 && (
+              <span className="bg-purple-600 text-white text-xs rounded-full px-2 py-0.5">
+                {userTools.length}
+              </span>
+            )}
+          </button>
+
           {user?.role === 'admin' && (
-            <a href="/admin" className="flex items-center gap-2 text-yellow-500 hover:text-yellow-400 transition">
-              <Settings size={18}/> {t.adminPanel}
+            <a href="/admin" className={`flex items-center gap-3 p-3 rounded-xl transition ${hoverBg} text-yellow-500`}>
+              <Settings size={18}/> 
+              <span className="text-sm">{t.adminPanel}</span>
             </a>
           )}
           
-          {/* Botão de Doação PayPal */}
-          <div className="flex justify-center py-2">
-            <form action="https://www.paypal.com/donate" method="post" target="_blank">
-              <input type="hidden" name="business" value="FPWQ5HGBR38SG" />
-              <input type="hidden" name="no_recurring" value="0" />
-              <input type="hidden" name="currency_code" value="USD" />
-              <input 
-                type="image" 
-                src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" 
-                name="submit" 
-                title="PayPal - The safer, easier way to pay online!" 
-                alt={t.donate}
-                className="cursor-pointer hover:opacity-80 transition"
-              />
-            </form>
-          </div>
-          
-          <button onClick={() => setShowSettings(true)} className={`flex items-center gap-2 ${textMuted} hover:${textMain} transition w-full`}>
-            <User size={18}/> {t.accountSettings}
-          </button>
-          <button onClick={handleLogout} className="flex items-center gap-2 text-red-400 hover:text-red-300 transition w-full">
-            <LogOut size={18}/> {texts.logout}
+          <button onClick={() => setShowSettings(true)} className={`w-full p-3 rounded-xl flex items-center gap-3 transition ${hoverBg} ${textMuted}`}>
+            <User size={18}/>
+            <span className="text-sm">{displayName || user?.username}</span>
           </button>
         </div>
-      </div>
+      </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header Mobile */}
-        <div className={`md:hidden ${bgCard} p-3 flex justify-between items-center ${borderColor} border-b`}>
-          <button onClick={() => setShowSidebar(true)} className="p-2">
-            <Menu size={24}/>
-          </button>
-          <span className="font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">jgspAI</span>
-          <button onClick={() => setShowChatConfig(true)} className="p-2">
-            <Settings size={24}/>
-          </button>
-        </div>
-
-        {/* Header Desktop */}
-        <div className={`hidden md:flex ${bgCard} ${borderColor} border-b p-3 justify-between items-center`}>
-          <div className="flex items-center gap-4">
-            <span className={textMuted}>
-              <span className={`text-xs uppercase ${selectedProvider === 'g4f' ? 'text-emerald-400' : 'text-indigo-400'}`}>
-                {selectedProvider === 'g4f' ? 'GPT4Free' : 'OpenRouter'}
-              </span>
-              {' • '}
-              <span className={textMain}>
-                {selectedProvider === 'openrouter' 
-                  ? models.find(m => m.id === selectedModels.text)?.name || selectedModels.text
-                  : g4fModels.find(m => m.id === selectedModels.text)?.name || selectedModels.text
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        {/* Header */}
+        <header className={`h-14 flex items-center justify-between px-4 ${borderColor} border-b shrink-0`}>
+          <div className="flex items-center gap-2">
+            {/* Sidebar Toggle */}
+            <button 
+              onClick={() => {
+                if (window.innerWidth < 768) {
+                  setShowMobileSidebar(!showMobileSidebar);
+                } else {
+                  setSidebarOpen(!sidebarOpen);
                 }
-              </span>
-            </span>
+              }}
+              className={`p-2 rounded-lg transition ${hoverBg} ${textMuted}`}
+            >
+              {sidebarOpen ? <PanelLeftClose size={20}/> : <PanelLeft size={20}/>}
+            </button>
+
+            {/* Model Selector Dropdown */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowModelDropdown(!showModelDropdown)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl transition ${hoverBg}`}
+              >
+                <Sparkles size={16} className="text-purple-400"/>
+                <span className="text-sm font-medium max-w-[150px] truncate">{getCurrentModelName()}</span>
+                <ChevronDown size={16} className={textMuted}/>
+              </button>
+              
+              {showModelDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowModelDropdown(false)}/>
+                  <div className={`absolute left-0 top-full mt-2 w-72 ${bgCard} rounded-2xl shadow-xl border ${borderColor} z-50 overflow-hidden`}>
+                    {/* Provider Tabs */}
+                    <div className={`flex ${borderColor} border-b p-1`}>
+                      {[
+                        { id: 'openrouter', label: 'OpenRouter', color: 'indigo' },
+                        { id: 'g4f', label: 'GPT4Free', color: 'emerald' },
+                        { id: 'groq', label: 'Groq', color: 'orange' }
+                      ].map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => setSelectedProvider(p.id)}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition ${
+                            selectedProvider === p.id 
+                              ? `bg-${p.color}-600 text-white` 
+                              : `${textMuted} ${hoverBg}`
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* Search */}
+                    <div className="p-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500"/>
+                        <input
+                          type="text"
+                          placeholder={t.searchModels}
+                          value={modelSearch}
+                          onChange={e => setModelSearch(e.target.value)}
+                          className={`w-full pl-9 pr-4 py-2 ${bgInput} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500`}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Models List */}
+                    <div className="max-h-64 overflow-y-auto p-2">
+                      {selectedProvider === 'openrouter' && models
+                        .filter(m => !m.type || m.type === 'chat')
+                        .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+                        .map(m => (
+                          <button
+                            key={m.id}
+                            onClick={() => { setSelectedModels(prev => ({ ...prev, text: m.id })); setShowModelDropdown(false); }}
+                            className={`w-full text-left px-3 py-2 text-sm rounded-lg transition flex items-center gap-2 ${
+                              selectedModels.text === m.id ? 'bg-indigo-600 text-white' : hoverBg
+                            }`}
+                          >
+                            <span className="truncate flex-1">{m.name}</span>
+                            {selectedModels.text === m.id && <Check size={14}/>}
+                          </button>
+                        ))
+                      }
+                      {selectedProvider === 'g4f' && g4fModels
+                        .filter(m => m.provider !== 'groq')
+                        .filter(m => !m.type || m.type === 'chat')
+                        .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+                        .map(m => (
+                          <button
+                            key={m.id}
+                            onClick={() => { setSelectedModels(prev => ({ ...prev, text: m.id })); setShowModelDropdown(false); }}
+                            className={`w-full text-left px-3 py-2 text-sm rounded-lg transition flex items-center gap-2 ${
+                              selectedModels.text === m.id ? 'bg-emerald-600 text-white' : hoverBg
+                            }`}
+                          >
+                            <span className="truncate flex-1">{m.name}</span>
+                            {m.provider && <span className={`text-xs ${selectedModels.text === m.id ? 'text-emerald-200' : textMuted}`}>({m.provider})</span>}
+                          </button>
+                        ))
+                      }
+                      {selectedProvider === 'groq' && g4fModels
+                        .filter(m => m.provider === 'groq')
+                        .filter(m => !m.type || m.type === 'chat')
+                        .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+                        .map(m => (
+                          <button
+                            key={m.id}
+                            onClick={() => { setSelectedModels(prev => ({ ...prev, text: m.id })); setShowModelDropdown(false); }}
+                            className={`w-full text-left px-3 py-2 text-sm rounded-lg transition flex items-center gap-2 ${
+                              selectedModels.text === m.id ? 'bg-orange-600 text-white' : hoverBg
+                            }`}
+                          >
+                            <span className="truncate flex-1">{m.name}</span>
+                            {m.speed && <span className={`text-xs ${selectedModels.text === m.id ? 'text-orange-200' : textMuted}`}>({m.speed})</span>}
+                          </button>
+                        ))
+                      }
+                    </div>
+                    
+                    {/* Footer */}
+                    <div className={`p-2 ${borderColor} border-t flex justify-between items-center`}>
+                      <button 
+                        onClick={() => { setShowModelDropdown(false); setShowChatConfig(true); }}
+                        className={`text-xs ${textMuted} hover:${textMain} flex items-center gap-1`}
+                      >
+                        <Settings size={12}/> {t.configChat}
+                      </button>
+                      <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-blue-400`}>
+                        <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             {swarmEnabled && (
-              <span className="text-purple-400 font-bold flex items-center gap-1" title={
-                selectedProvider === 'g4f' 
-                  ? t.swarmDescG4f 
-                  : t.swarmDesc
-              }>
-                <Zap size={14}/> {t.swarmActive}
+              <span className="text-xs text-purple-400 flex items-center gap-1 px-2 py-1 bg-purple-500/10 rounded-lg">
+                <Zap size={12}/> AI Tools
               </span>
             )}
           </div>
-          <button onClick={() => setShowChatConfig(true)} className={`flex items-center gap-2 ${textMuted} hover:text-indigo-400 transition`}>
-            <Settings size={16}/> {t.configChat}
-          </button>
-        </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
-            <div className={`text-center ${textMuted} mt-20`}>
-              <h2 className="text-3xl font-bold mb-2">{t.newChatWelcome}</h2>
-              <p className="text-sm mb-4">{t.newChatHint}</p>
-              {swarmEnabled && (
-                <div className={`${bgCard} p-4 rounded-xl max-w-lg mx-auto text-left ${borderColor} border`}>
-                  <div className="flex items-center gap-2 mb-2 text-purple-400">
-                    <Zap size={18}/> <span className="font-bold">{t.modeSwarmActive}</span>
-                  </div>
-                  <p className="text-xs opacity-80">
-                    {selectedProvider === 'g4f' 
-                      ? t.swarmDescG4f
-                      : t.swarmDesc
-                    }
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div 
-              key={i} 
-              className={`p-4 rounded-xl max-w-3xl shadow-lg ${
-                m.role === 'user' 
-                  ? 'bg-blue-600 text-white ml-auto' 
-                  : (isDark ? 'bg-gray-800' : 'bg-white border')
-              }`}
-            >
-              <div className="flex items-center gap-2 text-xs opacity-60 uppercase font-bold mb-2">
-                <span>{m.role === 'user' ? (displayName || user?.username || t.you) : t.assistant}</span>
-                {m.swarm_used && (
-                  <span className="text-purple-400 normal-case flex items-center gap-1">
-                    <Zap size={12}/> {t.swarmIterations} ({m.swarm_iterations}x)
-                  </span>
-                )}
-              </div>
-              <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-pink-400 prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-700 prose-a:text-blue-400 prose-strong:text-purple-400">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {m.content}
-                </ReactMarkdown>
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div className="flex items-center justify-center gap-2 text-blue-400">
-              <Loader2 className="animate-spin" size={20}/>
-              <span>{swarmEnabled ? t.thinkingSwarm : t.thinking}</span>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className={`p-4 ${bgCard} ${borderColor} border-t`}>
-          {/* Arquivos anexados */}
-          {attachedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-3 max-w-4xl mx-auto">
-              {attachedFiles.map((file, i) => (
-                <div key={i} className={`${bgInput} ${borderColor} border rounded-lg p-2 flex items-center gap-2 text-sm`}>
-                  {file.type === 'image' ? <Image size={16} className="text-green-400"/> : <File size={16} className="text-blue-400"/>}
-                  <span className="truncate max-w-[150px]">{file.name}</span>
-                  <button onClick={() => removeAttachment(i)} className="text-red-400 hover:text-red-300">
-                    <X size={14}/>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          
-          <div className="flex gap-2 max-w-4xl mx-auto">
-            {/* Botão de anexar */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              multiple
-              accept="image/*,.txt,.md,.js,.jsx,.ts,.tsx,.py,.json,.csv,.html,.css,.xml,.yaml,.yml,.pdf"
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading || uploading}
-              className={`${bgInput} ${borderColor} border p-4 rounded-xl hover:border-blue-500 transition disabled:opacity-50`}
-              title="Anexar arquivos"
-            >
-              {uploading ? <Loader2 className="animate-spin" size={18}/> : <Paperclip size={18}/>}
-            </button>
-            
-            {/* Botão de ferramentas */}
-            <button
-              onClick={() => setShowToolsPanel(true)}
-              className={`${bgInput} ${borderColor} border p-4 rounded-xl hover:border-purple-500 transition relative`}
-              title="Minhas Ferramentas"
-            >
-              <Wrench size={18}/>
-              {userTools.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {userTools.length}
-                </span>
-              )}
-            </button>
-            
-            <input
-              className={`flex-1 ${bgInput} p-4 rounded-xl ${borderColor} border outline-none focus:border-blue-500 transition`}
-              placeholder={t.placeholder}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              disabled={loading}
-            />
+          <div className="flex items-center gap-2">
             <button 
-              onClick={sendMessage} 
-              disabled={loading || (!input.trim() && attachedFiles.length === 0)}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 rounded-xl font-medium transition flex items-center gap-2"
+              onClick={handleLogout}
+              className={`p-2 rounded-lg transition ${hoverBg} text-red-400`}
             >
-              <Send size={18}/>
-              <span className="hidden sm:inline">{t.send}</span>
+              <LogOut size={18}/>
             </button>
           </div>
+        </header>
+
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-6">
+            {messages.length === 0 ? (
+              /* Welcome Screen */
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center mb-6">
+                  <Sparkles size={32} className="text-white"/>
+                </div>
+                <h1 className="text-3xl font-semibold mb-2">{t.newChatWelcome}</h1>
+                <p className={`${textMuted} mb-8 max-w-md`}>{t.newChatHint}</p>
+                
+                {swarmEnabled && (
+                  <div className={`${bgCard} p-4 rounded-2xl max-w-md text-left border ${borderColor}`}>
+                    <div className="flex items-center gap-2 mb-2 text-purple-400">
+                      <Zap size={18}/> 
+                      <span className="font-medium">{t.modeSwarmActive}</span>
+                    </div>
+                    <p className={`text-sm ${textMuted}`}>
+                      {selectedProvider === 'g4f' ? t.swarmDescG4f : t.swarmDesc}
+                    </p>
+                  </div>
+                )}
+                
+                {/* Quick Actions */}
+                <div className="grid grid-cols-2 gap-3 mt-8 w-full max-w-md">
+                  <button 
+                    onClick={() => setInput("Explique como funciona a inteligência artificial")}
+                    className={`${bgCard} p-4 rounded-xl text-left ${hoverBg} transition border ${borderColor}`}
+                  >
+                    <span className="text-sm">💡 Explique conceitos</span>
+                  </button>
+                  <button 
+                    onClick={() => setInput("Escreva um código em Python para")}
+                    className={`${bgCard} p-4 rounded-xl text-left ${hoverBg} transition border ${borderColor}`}
+                  >
+                    <span className="text-sm">💻 Escreva código</span>
+                  </button>
+                  <button 
+                    onClick={() => setInput("Crie uma história sobre")}
+                    className={`${bgCard} p-4 rounded-xl text-left ${hoverBg} transition border ${borderColor}`}
+                  >
+                    <span className="text-sm">📝 Crie histórias</span>
+                  </button>
+                  <button 
+                    onClick={() => setInput("Traduza o seguinte texto:")}
+                    className={`${bgCard} p-4 rounded-xl text-left ${hoverBg} transition border ${borderColor}`}
+                  >
+                    <span className="text-sm">🌍 Traduza textos</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Messages */
+              <div className="space-y-6">
+                {messages.map((m, i) => (
+                  <div key={i} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : ''}`}>
+                    {m.role === 'assistant' && (
+                      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0`}>
+                        <Sparkles size={16} className="text-white"/>
+                      </div>
+                    )}
+                    
+                    <div className={`flex-1 max-w-[85%] ${m.role === 'user' ? 'ml-auto' : ''}`}>
+                      {/* Message Header */}
+                      <div className={`flex items-center gap-2 mb-1 ${m.role === 'user' ? 'justify-end' : ''}`}>
+                        <span className={`text-xs font-medium ${textMuted}`}>
+                          {m.role === 'user' ? (displayName || user?.username || t.you) : 'jgspAI'}
+                        </span>
+                        {m.swarm_used && (
+                          <span className="text-xs text-purple-400 flex items-center gap-1">
+                            <Zap size={10}/> {m.swarm_iterations}x
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Message Content */}
+                      <div className={`rounded-2xl px-4 py-3 ${
+                        m.role === 'user' 
+                          ? 'bg-blue-600 text-white' 
+                          : `${bgCard} ${borderColor} border`
+                      }`}>
+                        <div className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''} 
+                          prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 
+                          prose-code:bg-black/20 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
+                          prose-pre:bg-black/30 prose-pre:border-0 prose-pre:rounded-xl
+                          prose-a:text-blue-400 prose-strong:font-semibold`}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {m.content}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                      
+                      {/* Message Actions */}
+                      {m.role === 'assistant' && (
+                        <div className="flex gap-1 mt-2">
+                          <button 
+                            onClick={() => copyToClipboard(m.content)}
+                            className={`p-1.5 rounded-lg ${textMuted} ${hoverBg} transition`}
+                            title="Copiar"
+                          >
+                            <Copy size={14}/>
+                          </button>
+                          {i === messages.length - 1 && (
+                            <button 
+                              onClick={regenerateResponse}
+                              className={`p-1.5 rounded-lg ${textMuted} ${hoverBg} transition`}
+                              title="Regenerar"
+                            >
+                              <RotateCcw size={14}/>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {m.role === 'user' && (
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shrink-0">
+                        <User size={16} className="text-white"/>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                
+                {loading && (
+                  <div className="flex gap-4">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                      <Sparkles size={16} className="text-white"/>
+                    </div>
+                    <div className={`${bgCard} rounded-2xl px-4 py-3 ${borderColor} border`}>
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="animate-spin" size={16}/>
+                        <span className={textMuted}>{swarmEnabled ? t.thinkingSwarm : t.thinking}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+
+        {/* Input Area */}
+        <div className="shrink-0 p-4">
+          <div className="max-w-3xl mx-auto">
+            {/* Attached Files */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {attachedFiles.map((file, i) => (
+                  <div key={i} className={`${bgCard} ${borderColor} border rounded-xl px-3 py-2 flex items-center gap-2 text-sm`}>
+                    {file.type === 'image' ? <Image size={14} className="text-green-400"/> : <File size={14} className="text-blue-400"/>}
+                    <span className="truncate max-w-[120px]">{file.name}</span>
+                    <button onClick={() => removeAttachment(i)} className="text-red-400 hover:text-red-300 p-0.5">
+                      <X size={14}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Input Box */}
+            <div className={`${bgCard} rounded-2xl border ${borderColor} shadow-lg overflow-hidden`}>
+              <div className="flex items-end gap-2 p-3">
+                {/* Attach Button */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  multiple
+                  accept="image/*,.txt,.md,.js,.jsx,.ts,.tsx,.py,.json,.csv,.html,.css,.xml,.yaml,.yml,.pdf"
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={loading || uploading}
+                  className={`p-2 rounded-lg ${textMuted} ${hoverBg} transition disabled:opacity-50`}
+                >
+                  {uploading ? <Loader2 className="animate-spin" size={20}/> : <Paperclip size={20}/>}
+                </button>
+                
+                {/* Textarea */}
+                <textarea
+                  ref={textareaRef}
+                  className={`flex-1 bg-transparent resize-none outline-none text-sm py-2 max-h-[200px] ${textMain}`}
+                  placeholder={t.placeholder}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  disabled={loading}
+                  rows={1}
+                />
+                
+                {/* Send Button */}
+                <button 
+                  onClick={sendMessage} 
+                  disabled={loading || (!input.trim() && attachedFiles.length === 0)}
+                  className={`p-2 rounded-lg transition ${
+                    input.trim() || attachedFiles.length > 0
+                      ? 'bg-white text-black hover:bg-gray-200' 
+                      : `${textMuted} cursor-not-allowed`
+                  }`}
+                >
+                  <Send size={20}/>
+                </button>
+              </div>
+            </div>
+            
+            <p className={`text-xs ${textMuted} text-center mt-3`}>
+              jgspAI pode cometer erros. Verifique informações importantes.
+            </p>
+          </div>
+        </div>
+      </main>
 
       {/* Modal Ferramentas do Usuário */}
       {showToolsPanel && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowToolsPanel(false)}>
-          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-            <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
-              <h2 className="font-bold text-lg flex items-center gap-2">
-                <Wrench className="text-purple-400"/> {t.myTools} ({userTools.length})
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setShowToolsPanel(false)}>
+          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col`} onClick={e => e.stopPropagation()}>
+            <div className={`p-4 ${borderColor} border-b flex justify-between items-center shrink-0`}>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <Wrench className="text-purple-400"/> {t.myTools}
+                <span className={`text-sm ${textMuted}`}>({userTools.length})</span>
               </h2>
-              <button onClick={() => setShowToolsPanel(false)} className={textMuted}>
-                <X size={24}/>
+              <button onClick={() => setShowToolsPanel(false)} className={`${textMuted} hover:${textMain} p-1`}>
+                <X size={20}/>
               </button>
             </div>
-            <div className="p-6">
+            <div className="flex-1 overflow-y-auto p-6">
               {userTools.length === 0 ? (
-                <div className={`text-center ${textMuted} py-8`}>
-                  <Wrench size={48} className="mx-auto mb-4 opacity-50"/>
-                  <p>{t.noTools}</p>
-                  <p className="text-sm mt-2">{t.noToolsHint}</p>
-                  <p className="text-xs mt-4 opacity-70">{t.noToolsExample}</p>
+                <div className={`text-center ${textMuted} py-12`}>
+                  <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center mx-auto mb-4">
+                    <Wrench size={32} className="text-purple-400"/>
+                  </div>
+                  <p className="font-medium mb-2">{t.noTools}</p>
+                  <p className="text-sm">{t.noToolsHint}</p>
+                  <p className="text-xs mt-4 opacity-70 max-w-sm mx-auto">{t.noToolsExample}</p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {userTools.map(tool => (
-                    <div key={tool._id} className={`${bgInput} ${borderColor} border rounded-xl p-4`}>
+                    <div key={tool._id} className={`${bgInput} rounded-xl p-4 border ${borderColor}`}>
                       <div className="flex justify-between items-start mb-2">
                         <div>
-                          <h3 className="font-bold text-purple-400">{tool.name}</h3>
+                          <h3 className="font-semibold text-purple-400">{tool.name}</h3>
                           <p className={`text-sm ${textMuted}`}>{tool.description}</p>
                         </div>
                         <button 
                           onClick={() => deleteTool(tool._id)}
-                          className="text-red-400 hover:text-red-300 p-1"
+                          className="text-red-400 hover:text-red-300 p-1.5 rounded-lg hover:bg-red-500/10 transition"
                         >
                           <Trash2 size={16}/>
                         </button>
@@ -786,7 +1084,7 @@ export default function ChatInterface({ user, setUser }) {
                         <summary className={`text-xs ${textMuted} cursor-pointer hover:text-blue-400`}>
                           {t.viewCode}
                         </summary>
-                        <pre className={`mt-2 ${bgCard} p-3 rounded-lg text-xs overflow-auto max-h-32 text-green-400`}>
+                        <pre className={`mt-2 ${isDark ? 'bg-black/30' : 'bg-gray-200'} p-3 rounded-lg text-xs overflow-auto max-h-32 text-green-400`}>
                           {tool.code}
                         </pre>
                       </details>
@@ -801,25 +1099,25 @@ export default function ChatInterface({ user, setUser }) {
 
       {/* Modal Config Chat */}
       {showChatConfig && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowChatConfig(false)}>
-          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-            <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
-              <h2 className="font-bold text-lg">{t.settings}</h2>
-              <button onClick={() => setShowChatConfig(false)} className={textMuted}>
-                <X size={24}/>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setShowChatConfig(false)}>
+          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col`} onClick={e => e.stopPropagation()}>
+            <div className={`p-4 ${borderColor} border-b flex justify-between items-center shrink-0`}>
+              <h2 className="font-semibold text-lg">{t.settings}</h2>
+              <button onClick={() => setShowChatConfig(false)} className={`${textMuted} hover:${textMain} p-1`}>
+                <X size={20}/>
               </button>
             </div>
-            <div className="p-6 space-y-6">
-              {/* Tabs */}
-              <div className={`flex ${borderColor} border-b`}>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Model Type Tabs */}
+              <div className={`flex rounded-xl ${bgInput} p-1`}>
                 {['text', 'image', 'audio', 'video'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setActiveModelTab(tab)}
-                    className={`flex-1 py-2 text-sm font-medium border-b-2 transition ${
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${
                       activeModelTab === tab 
-                        ? 'border-indigo-500 text-indigo-400' 
-                        : 'border-transparent ' + textMuted + ' hover:' + textMain
+                        ? 'bg-blue-600 text-white' 
+                        : textMuted + ' hover:' + textMain
                     }`}
                   >
                     {tab === 'text' && texts.admin.modelsModal.text}
@@ -830,32 +1128,32 @@ export default function ChatInterface({ user, setUser }) {
                 ))}
               </div>
 
-              {/* Seletor de Provider */}
+              {/* Provider Selector */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
                   <Layers size={16}/> {t.providerAI}
                 </label>
-                <div className="flex gap-2">
+                <div className={`flex rounded-xl ${bgInput} p-1`}>
                   <button 
                     onClick={() => setSelectedProvider('openrouter')}
-                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
-                      selectedProvider === 'openrouter' ? 'bg-indigo-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
+                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-1 transition text-sm font-medium ${
+                      selectedProvider === 'openrouter' ? 'bg-indigo-600 text-white' : textMuted
                     }`}
                   >
-                    <Database size={16}/> OpenRouter
+                    <Database size={14}/> OpenRouter
                   </button>
                   <button 
                     onClick={() => setSelectedProvider('g4f')}
-                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
-                      selectedProvider === 'g4f' ? 'bg-emerald-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
+                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-1 transition text-sm font-medium ${
+                      selectedProvider === 'g4f' ? 'bg-emerald-600 text-white' : textMuted
                     }`}
                   >
-                    <Zap size={16}/> GPT4Free
+                    <Zap size={14}/> GPT4Free
                   </button>
                   <button 
                     onClick={() => setSelectedProvider('groq')}
-                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
-                      selectedProvider === 'groq' ? 'bg-orange-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
+                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-1 transition text-sm font-medium ${
+                      selectedProvider === 'groq' ? 'bg-orange-600 text-white' : textMuted
                     }`}
                   >
                     ⚡ Groq
@@ -863,7 +1161,7 @@ export default function ChatInterface({ user, setUser }) {
                 </div>
               </div>
 
-              {/* Seletor de Modelo com Pesquisa */}
+              {/* Model Selector */}
               <div>
                 <label className={`text-sm ${textMuted} block mb-2`}>
                   {t.model} - {activeModelTab === 'text' ? t.textModel : 
@@ -877,10 +1175,10 @@ export default function ChatInterface({ user, setUser }) {
                     placeholder={t.searchModels}
                     value={modelSearch}
                     onChange={e => setModelSearch(e.target.value)}
-                    className={`w-full pl-10 pr-4 py-2 ${bgInput} ${borderColor} border rounded-lg text-sm focus:outline-none focus:border-indigo-500`}
+                    className={`w-full pl-10 pr-4 py-2.5 ${bgInput} rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50`}
                   />
                 </div>
-                <div className={`${bgInput} ${borderColor} border rounded-lg max-h-48 overflow-y-auto`}>
+                <div className={`${bgInput} rounded-xl max-h-48 overflow-y-auto`}>
                   {selectedProvider === 'openrouter' && (
                     models
                       .filter(m => {
@@ -892,20 +1190,20 @@ export default function ChatInterface({ user, setUser }) {
                         <button
                           key={m.id}
                           onClick={() => setSelectedModels(prev => ({ ...prev, [activeModelTab]: m.id }))}
-                          className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
+                          className={`w-full text-left px-3 py-2.5 text-sm transition flex items-center gap-2 rounded-lg m-1 ${
                             selectedModels[activeModelTab] === m.id 
                               ? 'bg-indigo-600 text-white' 
-                              : 'hover:bg-indigo-500/20'
+                              : hoverBg
                           }`}
                         >
-                          <Database size={14} className={selectedModels[activeModelTab] === m.id ? 'text-white' : 'text-indigo-400'}/>
-                          <span className="truncate">{m.name}</span>
+                          <span className="truncate flex-1">{m.name}</span>
+                          {selectedModels[activeModelTab] === m.id && <Check size={14}/>}
                         </button>
                       ))
                   )}
                   {selectedProvider === 'g4f' && (
                     g4fModels
-                      .filter(m => m.provider !== 'groq') // Excluir Groq do G4F
+                      .filter(m => m.provider !== 'groq')
                       .filter(m => {
                         if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                         return m.type === activeModelTab;
@@ -915,21 +1213,20 @@ export default function ChatInterface({ user, setUser }) {
                         <button
                           key={m.id}
                           onClick={() => setSelectedModels(prev => ({ ...prev, [activeModelTab]: m.id }))}
-                          className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
+                          className={`w-full text-left px-3 py-2.5 text-sm transition flex items-center gap-2 rounded-lg m-1 ${
                             selectedModels[activeModelTab] === m.id 
                               ? 'bg-emerald-600 text-white' 
-                              : 'hover:bg-emerald-500/20'
+                              : hoverBg
                           }`}
                         >
-                          <Zap size={14} className={selectedModels[activeModelTab] === m.id ? 'text-white' : 'text-emerald-400'}/>
-                          <span className="truncate">{m.name}</span>
-                          {m.provider && <span className={`text-xs ${selectedModels[activeModelTab] === m.id ? 'text-emerald-200' : 'text-gray-500'}`}>({m.provider})</span>}
+                          <span className="truncate flex-1">{m.name}</span>
+                          {m.provider && <span className={`text-xs ${selectedModels[activeModelTab] === m.id ? 'text-emerald-200' : textMuted}`}>({m.provider})</span>}
                         </button>
                       ))
                   )}
                   {selectedProvider === 'groq' && (
                     g4fModels
-                      .filter(m => m.provider === 'groq') // Apenas Groq
+                      .filter(m => m.provider === 'groq')
                       .filter(m => {
                         if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                         return m.type === activeModelTab;
@@ -939,15 +1236,14 @@ export default function ChatInterface({ user, setUser }) {
                         <button
                           key={m.id}
                           onClick={() => setSelectedModels(prev => ({ ...prev, [activeModelTab]: m.id }))}
-                          className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
+                          className={`w-full text-left px-3 py-2.5 text-sm transition flex items-center gap-2 rounded-lg m-1 ${
                             selectedModels[activeModelTab] === m.id 
                               ? 'bg-orange-600 text-white' 
-                              : 'hover:bg-orange-500/20'
+                              : hoverBg
                           }`}
                         >
-                          <Zap size={14} className={selectedModels[activeModelTab] === m.id ? 'text-white' : 'text-orange-400'}/>
-                          <span className="truncate">{m.name}</span>
-                          {m.speed && <span className={`text-xs ${selectedModels[activeModelTab] === m.id ? 'text-orange-200' : 'text-gray-500'}`}>({m.speed})</span>}
+                          <span className="truncate flex-1">{m.name}</span>
+                          {m.speed && <span className={`text-xs ${selectedModels[activeModelTab] === m.id ? 'text-orange-200' : textMuted}`}>({m.speed})</span>}
                         </button>
                       ))
                   )}
@@ -964,24 +1260,25 @@ export default function ChatInterface({ user, setUser }) {
                       return g4fModels.filter(m => m.provider !== 'groq').filter(typeFilter).length;
                     })()} {t.modelsAvailable}
                   </p>
-                  <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title={t.refreshModels}>
+                  <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-blue-400`} title={t.refreshModels}>
                     <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>
                   </button>
                 </div>
               </div>
 
+              {/* System Prompt */}
               <div>
                 <label className={`text-sm ${textMuted} block mb-2`}>{t.systemPrompt}</label>
                 <textarea
-                  className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border min-h-[100px]`}
+                  className={`w-full ${bgInput} p-3 rounded-xl min-h-[100px] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50`}
                   placeholder={t.systemPromptPlaceholder}
                   value={userSystemPrompt}
                   onChange={e => setUserSystemPrompt(e.target.value)}
                 />
               </div>
             </div>
-            <div className={`p-4 ${borderColor} border-t`}>
-              <button onClick={() => setShowChatConfig(false)} className="w-full bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 p-3 rounded-lg font-medium transition">
+            <div className={`p-4 ${borderColor} border-t shrink-0`}>
+              <button onClick={() => setShowChatConfig(false)} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 p-3 rounded-xl font-medium transition">
                 {t.apply}
               </button>
             </div>
@@ -989,38 +1286,38 @@ export default function ChatInterface({ user, setUser }) {
         </div>
       )}
 
-      {/* Modal Configurações Gerais */}
+      {/* Modal Configurações do Usuário */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowSettings(false)}>
-          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-            <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
-              <h2 className="font-bold text-lg">{tUser.title}</h2>
-              <button onClick={() => setShowSettings(false)} className={textMuted}>
-                <X size={24}/>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setShowSettings(false)}>
+          <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col`} onClick={e => e.stopPropagation()}>
+            <div className={`p-4 ${borderColor} border-b flex justify-between items-center shrink-0`}>
+              <h2 className="font-semibold text-lg">{tUser.title}</h2>
+              <button onClick={() => setShowSettings(false)} className={`${textMuted} hover:${textMain} p-1`}>
+                <X size={20}/>
               </button>
             </div>
-            <div className="p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Tema */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
                   <Palette size={16}/> {tUser.theme}
                 </label>
-                <div className="flex gap-2">
+                <div className={`flex rounded-xl ${bgInput} p-1`}>
                   <button 
                     onClick={() => setTheme('dark')}
-                    className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
-                      theme === 'dark' ? 'bg-blue-600 text-white' : (isDark ? 'bg-gray-700' : 'bg-gray-200')
+                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition font-medium ${
+                      theme === 'dark' ? 'bg-blue-600 text-white' : textMuted
                     }`}
                   >
-                    <Moon size={18}/> {tUser.themeDark}
+                    <Moon size={16}/> {tUser.themeDark}
                   </button>
                   <button 
                     onClick={() => setTheme('light')}
-                    className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
-                      theme === 'light' ? 'bg-blue-600 text-white' : (isDark ? 'bg-gray-700' : 'bg-gray-200')
+                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition font-medium ${
+                      theme === 'light' ? 'bg-blue-600 text-white' : textMuted
                     }`}
                   >
-                    <Sun size={18}/> {tUser.themeLight}
+                    <Sun size={16}/> {tUser.themeLight}
                   </button>
                 </div>
               </div>
@@ -1031,7 +1328,7 @@ export default function ChatInterface({ user, setUser }) {
                   <User size={16}/> {tUser.displayName}
                 </label>
                 <input
-                  className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border`}
+                  className={`w-full ${bgInput} p-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50`}
                   placeholder={tUser.displayName}
                   value={displayName}
                   onChange={e => setDisplayName(e.target.value)}
@@ -1042,12 +1339,11 @@ export default function ChatInterface({ user, setUser }) {
               <div>
                 <label className={`text-sm ${textMuted} block mb-2`}>{tUser.bio}</label>
                 <textarea
-                  className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border min-h-[80px]`}
+                  className={`w-full ${bgInput} p-3 rounded-xl min-h-[80px] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50`}
                   placeholder={tUser.bioPlaceholder}
                   value={bio}
                   onChange={e => setBio(e.target.value)}
                 />
-                <p className={`text-xs ${textMuted} mt-1`}>{tUser.apiKeyInfo}</p>
               </div>
 
               {/* API Key */}
@@ -1057,18 +1353,28 @@ export default function ChatInterface({ user, setUser }) {
                 </label>
                 <input
                   type="password"
-                  className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border`}
+                  className={`w-full ${bgInput} p-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50`}
                   placeholder={hasPersonalKey ? "••••••••••••" : tUser.apiKeyPlaceholder}
                   value={personalApiKey}
                   onChange={e => setPersonalApiKey(e.target.value)}
                 />
                 {hasPersonalKey && (
-                  <p className={`text-xs text-green-500 mt-1`}>✓ {tUser.apiKeyInfo}</p>
+                  <p className="text-xs text-green-500 mt-1 flex items-center gap-1">
+                    <Check size={12}/> {tUser.apiKeyInfo}
+                  </p>
                 )}
               </div>
+              
+              {/* Logout */}
+              <button 
+                onClick={handleLogout}
+                className="w-full p-3 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 transition flex items-center justify-center gap-2"
+              >
+                <LogOut size={16}/> {texts.logout}
+              </button>
             </div>
-            <div className={`p-4 ${borderColor} border-t`}>
-              <button onClick={saveSettings} className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-medium transition">
+            <div className={`p-4 ${borderColor} border-t shrink-0`}>
+              <button onClick={saveSettings} className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-xl font-medium transition">
                 {tUser.save}
               </button>
             </div>
