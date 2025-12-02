@@ -2,18 +2,16 @@
   "name": "meu-super-ai-functions",
   "version": "1.0.0",
   "description": "Azure Functions para processamento pesado de IA",
-  "main": "index.js",
+  "main": "src/functions/*.js",
   "scripts": {
     "start": "func start",
     "test": "echo \"No tests yet\""
   },
   "dependencies": {
+    "@azure/functions": "^4.0.0",
     "axios": "^1.6.0",
     "jsonwebtoken": "^9.0.0",
     "mongoose": "^7.0.3",
     "openai": "^4.28.0"
-  },
-  "devDependencies": {
-    "azure-functions-core-tools": "^4.x"
   }
 }
