@@ -140,6 +140,14 @@ const getApiKey = async (user) => {
     return process.env.GLOBAL_API_KEY || '';
 };
 
+// Helper para obter Groq API Key
+const getGroqApiKey = async () => {
+    await connectDB();
+    const groqKey = await GlobalConfig.findOne({ key: 'GROQ_API_KEY' });
+    if (groqKey) return groqKey.value;
+    return process.env.GROQ_API_KEY || '';
+};
+
 // ============ ROTAS PÚBLICAS ============
 
 app.get('/api/ping', (req, res) => res.send('pong'));
@@ -271,9 +279,10 @@ app.get('/api/models/g4f', async (req, res) => {
         
         // ============ PROVIDERS COM API KEY GRATUITA ============
         
-        // Groq - Ultra rápido! (se tiver API key configurada)
+        // Groq - Ultra rápido! (se tiver API key configurada no env ou banco)
         // Obter key gratuita em: https://console.groq.com/keys
-        if (process.env.GROQ_API_KEY) {
+        const groqKey = await getGroqApiKey();
+        if (groqKey) {
             const groqModels = [
                 { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq - Ultra Fast)', type: 'chat', speed: 'ultra-fast' },
                 { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B (Groq)', type: 'chat', speed: 'very-fast' },
@@ -630,9 +639,12 @@ const callG4F = async (model, messages, preferredProvider = null) => {
     else if (provider === 'deepinfra' || modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
         providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
     }
-    // Groq - ultra rápido (precisa de API key)
-    else if (provider === 'groq' && process.env.GROQ_API_KEY) {
-        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: process.env.GROQ_API_KEY }) });
+    // Groq - ultra rápido (precisa de API key do banco ou env)
+    else if (provider === 'groq') {
+        const groqKey = await getGroqApiKey();
+        if (groqKey) {
+            providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKey }) });
+        }
     }
     // Cerebras - rápido (precisa de API key)
     else if (provider === 'cerebras' && process.env.CEREBRAS_API_KEY) {
@@ -641,8 +653,9 @@ const callG4F = async (model, messages, preferredProvider = null) => {
     
     // Fallbacks
     // Se tiver Groq configurado, usa como fallback (é muito rápido)
-    if (process.env.GROQ_API_KEY && !providersToTry.some(p => p.name === 'groq')) {
-        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: process.env.GROQ_API_KEY }) });
+    const groqKeyFallback = await getGroqApiKey();
+    if (groqKeyFallback && !providersToTry.some(p => p.name === 'groq')) {
+        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKeyFallback }) });
     }
     
     // Pollinations sempre como fallback final (funciona sempre)
@@ -2207,12 +2220,15 @@ app.get('/api/admin/config', auth, adminOnly, async (req, res) => {
     try {
         await connectDB();
         const apiKeyConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
+        const groqKeyConfig = await GlobalConfig.findOne({ key: 'GROQ_API_KEY' });
         const defaultModelConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODEL' });
         const defaultModelsConfig = await GlobalConfig.findOne({ key: 'DEFAULT_MODELS' });
         const globalSystemPromptConfig = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' });
         res.json({
             hasGlobalApiKey: !!apiKeyConfig?.value,
             globalApiKeyPreview: apiKeyConfig?.value ? '****' + apiKeyConfig.value.slice(-4) : null,
+            hasGroqApiKey: !!groqKeyConfig?.value,
+            groqApiKeyPreview: groqKeyConfig?.value ? '****' + groqKeyConfig.value.slice(-4) : null,
             defaultModel: defaultModelConfig?.value || 'google/gemini-2.0-flash-exp:free',
             defaultModels: defaultModelsConfig?.value || {},
             globalSystemPrompt: globalSystemPromptConfig?.value || ''
@@ -2242,18 +2258,36 @@ app.get('/api/config/default-model', async (req, res) => {
 app.post('/api/admin/config/apikey', auth, adminOnly, async (req, res) => {
     try {
         await connectDB();
-        const { apiKey } = req.body;
+        const { apiKey, groqApiKey } = req.body;
         
-        await GlobalConfig.findOneAndUpdate(
-            { key: 'OPENROUTER_API_KEY' },
-            { key: 'OPENROUTER_API_KEY', value: apiKey || '' },
-            { upsert: true, new: true }
-        );
+        // Salvar OpenRouter API Key se fornecida
+        if (apiKey !== undefined) {
+            await GlobalConfig.findOneAndUpdate(
+                { key: 'OPENROUTER_API_KEY' },
+                { key: 'OPENROUTER_API_KEY', value: apiKey || '' },
+                { upsert: true, new: true }
+            );
+        }
+        
+        // Salvar Groq API Key se fornecida
+        if (groqApiKey !== undefined) {
+            await GlobalConfig.findOneAndUpdate(
+                { key: 'GROQ_API_KEY' },
+                { key: 'GROQ_API_KEY', value: groqApiKey || '' },
+                { upsert: true, new: true }
+            );
+        }
+        
+        // Buscar valores atualizados
+        const openRouterConfig = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' });
+        const groqConfig = await GlobalConfig.findOne({ key: 'GROQ_API_KEY' });
         
         res.json({ 
             success: true, 
-            hasGlobalApiKey: !!apiKey,
-            globalApiKeyPreview: apiKey ? '****' + apiKey.slice(-4) : null
+            hasGlobalApiKey: !!openRouterConfig?.value,
+            globalApiKeyPreview: openRouterConfig?.value ? '****' + openRouterConfig.value.slice(-4) : null,
+            hasGroqApiKey: !!groqConfig?.value,
+            groqApiKeyPreview: groqConfig?.value ? '****' + groqConfig.value.slice(-4) : null
         });
     } catch (err) {
         console.error('Erro ao salvar API key:', err);

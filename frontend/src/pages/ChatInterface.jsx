@@ -529,6 +529,24 @@ export default function ChatInterface({ user, setUser }) {
               <Settings size={18}/> Painel Admin
             </a>
           )}
+          
+          {/* Botão de Doação PayPal */}
+          <div className="flex justify-center py-2">
+            <form action="https://www.paypal.com/donate" method="post" target="_blank">
+              <input type="hidden" name="business" value="FPWQ5HGBR38SG" />
+              <input type="hidden" name="no_recurring" value="0" />
+              <input type="hidden" name="currency_code" value="USD" />
+              <input 
+                type="image" 
+                src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" 
+                name="submit" 
+                title="PayPal - The safer, easier way to pay online!" 
+                alt="Donate with PayPal button"
+                className="cursor-pointer hover:opacity-80 transition"
+              />
+            </form>
+          </div>
+          
           <button onClick={() => setShowSettings(true)} className={`flex items-center gap-2 ${textMuted} hover:${textMain} transition w-full`}>
             <User size={18}/> Configurações
           </button>

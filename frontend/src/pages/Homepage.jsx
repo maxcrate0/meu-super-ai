@@ -444,6 +444,31 @@ export default function Homepage({ user, setUser }) {
         </div>
       </section>
 
+      {/* Donation Section */}
+      <section className="py-12 px-4 bg-gray-950/50">
+        <div className="max-w-2xl mx-auto text-center">
+          <h3 className="text-xl font-semibold mb-4 text-gray-300">Apoie o Projeto</h3>
+          <p className="text-gray-400 mb-6 text-sm">
+            Se você gosta do jgspAI, considere fazer uma doação para ajudar a manter o projeto funcionando.
+          </p>
+          <div className="flex justify-center">
+            <form action="https://www.paypal.com/donate" method="post" target="_blank">
+              <input type="hidden" name="business" value="FPWQ5HGBR38SG" />
+              <input type="hidden" name="no_recurring" value="0" />
+              <input type="hidden" name="currency_code" value="USD" />
+              <input 
+                type="image" 
+                src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" 
+                name="submit" 
+                title="PayPal - The safer, easier way to pay online!" 
+                alt="Donate with PayPal button"
+                className="cursor-pointer hover:opacity-80 transition"
+              />
+            </form>
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="py-8 px-4 border-t border-indigo-500/20">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between">

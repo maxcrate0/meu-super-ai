@@ -20,6 +20,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [globalApiKey, setGlobalApiKey] = useState('');
+  const [groqApiKey, setGroqApiKey] = useState('');
   const [apiKeyConfig, setApiKeyConfig] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [models, setModels] = useState([]);
@@ -38,6 +39,7 @@ export default function AdminDashboard() {
   const [showSystemPromptModal, setShowSystemPromptModal] = useState(false);
   const [globalSystemPrompt, setGlobalSystemPrompt] = useState('');
   const [savingSystemPrompt, setSavingSystemPrompt] = useState(false);
+  const [activeApiTab, setActiveApiTab] = useState('openrouter');
   
   const token = localStorage.getItem('token');
 
@@ -250,16 +252,38 @@ export default function AdminDashboard() {
 
   const saveGlobalApiKey = async () => {
     try {
+      const payload = {};
+      if (activeApiTab === 'openrouter') {
+        payload.apiKey = globalApiKey;
+      } else {
+        payload.groqApiKey = groqApiKey;
+      }
+      
       const res = await axios.post(API_URL + '/admin/config/apikey', 
-        { apiKey: globalApiKey },
+        payload,
         { headers: { Authorization: 'Bearer ' + token } }
       );
       setApiKeyConfig(res.data);
       setGlobalApiKey('');
+      setGroqApiKey('');
       setShowApiKeyModal(false);
-      alert('Chave API global salva com sucesso!');
+      alert('Chave API salva com sucesso!');
     } catch(err) {
       alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const removeApiKey = async (type) => {
+    try {
+      const payload = type === 'openrouter' ? { apiKey: '' } : { groqApiKey: '' };
+      const res = await axios.post(API_URL + '/admin/config/apikey', 
+        payload,
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      setApiKeyConfig(res.data);
+      alert('Chave removida!');
+    } catch(err) {
+      alert('Erro: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -306,13 +330,20 @@ export default function AdminDashboard() {
             onClick={() => setShowApiKeyModal(true)}
             className="w-full bg-yellow-600 hover:bg-yellow-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <Key size={18}/> Gerenciar API Key
+            <Key size={18}/> Gerenciar API Keys
           </button>
-          {apiKeyConfig?.hasGlobalApiKey && (
-            <p className="text-xs text-green-400 text-center">
-              ✓ Chave: {apiKeyConfig.globalApiKeyPreview}
-            </p>
-          )}
+          <div className="flex flex-col gap-1">
+            {apiKeyConfig?.hasGlobalApiKey && (
+              <p className="text-xs text-green-400 text-center">
+                ✓ OpenRouter: {apiKeyConfig.globalApiKeyPreview}
+              </p>
+            )}
+            {apiKeyConfig?.hasGroqApiKey && (
+              <p className="text-xs text-emerald-400 text-center">
+                ⚡ Groq: {apiKeyConfig.groqApiKeyPreview}
+              </p>
+            )}
+          </div>
           
           <button 
             onClick={() => setShowModelModal(true)}
@@ -582,57 +613,126 @@ export default function AdminDashboard() {
           <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <Key className="text-yellow-500"/> Chave API Global
+                <Key className="text-yellow-500"/> Gerenciar API Keys
               </h2>
               <button onClick={() => setShowApiKeyModal(false)}>
                 <X size={24}/>
               </button>
             </div>
             <div className="p-6 space-y-4">
+              {/* Tabs para alternar entre APIs */}
+              <div className="flex border-b border-gray-700">
+                <button
+                  onClick={() => setActiveApiTab('openrouter')}
+                  className={`flex-1 py-2 text-sm font-medium border-b-2 transition ${
+                    activeApiTab === 'openrouter' 
+                      ? 'border-indigo-500 text-indigo-400' 
+                      : 'border-transparent text-gray-400 hover:text-white'
+                  }`}
+                >
+                  OpenRouter
+                </button>
+                <button
+                  onClick={() => setActiveApiTab('groq')}
+                  className={`flex-1 py-2 text-sm font-medium border-b-2 transition ${
+                    activeApiTab === 'groq' 
+                      ? 'border-emerald-500 text-emerald-400' 
+                      : 'border-transparent text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Groq ⚡
+                </button>
+              </div>
+
               <div className="bg-yellow-900/30 border border-yellow-600/50 p-4 rounded-lg">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="text-yellow-500 shrink-0 mt-0.5" size={20}/>
                   <div className="text-sm">
-                    <p className="font-medium text-yellow-500">Importante</p>
+                    <p className="font-medium text-yellow-500">
+                      {activeApiTab === 'openrouter' ? 'OpenRouter' : 'Groq'}
+                    </p>
                     <p className="text-yellow-200/70 mt-1">
-                      Esta chave será usada por todos os usuários que não têm chave pessoal configurada.
+                      {activeApiTab === 'openrouter' 
+                        ? 'Chave usada por todos os usuários sem chave pessoal. Obtenha em openrouter.ai'
+                        : 'Groq oferece inferência ultra-rápida! Obtenha key grátis em console.groq.com'}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {apiKeyConfig?.hasGlobalApiKey && (
-                <div className="text-sm text-green-400">
-                  ✓ Chave atual: {apiKeyConfig.globalApiKeyPreview}
-                </div>
+              {/* OpenRouter */}
+              {activeApiTab === 'openrouter' && (
+                <>
+                  {apiKeyConfig?.hasGlobalApiKey && (
+                    <div className="text-sm text-green-400 flex items-center justify-between">
+                      <span>✓ Chave atual: {apiKeyConfig.globalApiKeyPreview}</span>
+                      <button 
+                        onClick={() => removeApiKey('openrouter')}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-sm text-gray-400 block mb-2">Nova Chave API (OpenRouter)</label>
+                    <input
+                      type="password"
+                      className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
+                      placeholder="sk-or-v1-..."
+                      value={globalApiKey}
+                      onChange={e => setGlobalApiKey(e.target.value)}
+                    />
+                  </div>
+                  <button 
+                    onClick={saveGlobalApiKey}
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 p-3 rounded-lg transition"
+                    disabled={!globalApiKey}
+                  >
+                    Salvar OpenRouter Key
+                  </button>
+                </>
               )}
 
-              <div>
-                <label className="text-sm text-gray-400 block mb-2">Nova Chave API (OpenRouter)</label>
-                <input
-                  type="password"
-                  className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
-                  placeholder="sk-or-v1-..."
-                  value={globalApiKey}
-                  onChange={e => setGlobalApiKey(e.target.value)}
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => { setGlobalApiKey(''); saveGlobalApiKey(); }}
-                  className="flex-1 bg-red-600 hover:bg-red-500 p-3 rounded-lg transition"
-                >
-                  Remover Chave
-                </button>
-                <button 
-                  onClick={saveGlobalApiKey}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 p-3 rounded-lg transition"
-                  disabled={!globalApiKey}
-                >
-                  Salvar
-                </button>
-              </div>
+              {/* Groq */}
+              {activeApiTab === 'groq' && (
+                <>
+                  {apiKeyConfig?.hasGroqApiKey && (
+                    <div className="text-sm text-green-400 flex items-center justify-between">
+                      <span>✓ Chave atual: {apiKeyConfig.groqApiKeyPreview}</span>
+                      <button 
+                        onClick={() => removeApiKey('groq')}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-sm text-gray-400 block mb-2">Nova Chave API (Groq)</label>
+                    <input
+                      type="password"
+                      className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
+                      placeholder="gsk_..."
+                      value={groqApiKey}
+                      onChange={e => setGroqApiKey(e.target.value)}
+                    />
+                  </div>
+                  <button 
+                    onClick={saveGlobalApiKey}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 p-3 rounded-lg transition"
+                    disabled={!groqApiKey}
+                  >
+                    Salvar Groq Key
+                  </button>
+                  <p className="text-xs text-gray-500 text-center">
+                    💡 Groq é gratuito e muito mais rápido! Obtenha sua key em{' '}
+                    <a href="https://console.groq.com/keys" target="_blank" className="text-emerald-400 hover:underline">
+                      console.groq.com
+                    </a>
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
