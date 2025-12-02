@@ -14,19 +14,27 @@ const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
 
-// GPT4Free - módulo será carregado dinamicamente (é ESM)
-let g4fModule = null;
-let g4fProviders = null;
-let createG4FClient = null;
+// GPT4Free - carrega o client direto do g4f.dev
+let g4fClients = null;
 
 async function loadG4F() {
-    if (!g4fModule) {
-        g4fModule = await import('@gpt4free/g4f.dev');
-        const providersModule = await import('@gpt4free/g4f.dev/providers');
-        g4fProviders = providersModule.default || providersModule;
-        createG4FClient = providersModule.createClient;
+    if (!g4fClients) {
+        const g4fModule = await import('./g4f-client.mjs');
+        g4fClients = {
+            Client: g4fModule.Client,
+            PollinationsAI: g4fModule.PollinationsAI,
+            DeepInfra: g4fModule.DeepInfra,
+            Together: g4fModule.Together,
+            HuggingFace: g4fModule.HuggingFace,
+            Worker: g4fModule.Worker,
+            Audio: g4fModule.Audio,
+            // Providers que requerem API key gratuita
+            Groq: g4fModule.Groq,
+            Cerebras: g4fModule.Cerebras,
+            OpenRouterFree: g4fModule.OpenRouterFree
+        };
     }
-    return { g4fModule, g4fProviders, createG4FClient };
+    return g4fClients;
 }
 
 const User = require('./models/User');
@@ -167,7 +175,7 @@ app.get('/api/models', async (req, res) => {
     }
 });
 
-// Modelos GPT4Free - busca dos provedores reais via @gpt4free/g4f.dev
+// Modelos GPT4Free - busca modelos de múltiplos provedores
 app.get('/api/models/g4f', async (req, res) => {
     const now = Date.now();
     
@@ -178,59 +186,132 @@ app.get('/api/models/g4f', async (req, res) => {
     }
     
     try {
-        const { createG4FClient: createClient } = await loadG4F();
+        // Buscar modelos do Pollinations diretamente (API mais confiável)
+        const [textModelsRes, imageModelsRes] = await Promise.all([
+            axios.get('https://text.pollinations.ai/models').catch(() => ({ data: [] })),
+            axios.get('https://image.pollinations.ai/models').catch(() => ({ data: [] }))
+        ]);
+        
         const allModels = [];
         
-        // Provedores gratuitos do g4f.dev
-        const freeProviders = ['pollinations-ai', 'default', 'puter'];
-        
-        for (const providerName of freeProviders) {
-            try {
-                const client = createClient(providerName);
-                const models = await client.models.list();
-                
-                if (models && models.length > 0) {
-                    models.forEach(m => {
-                        let type = m.type || 'chat';
-                        const idLower = m.id.toLowerCase();
-                        
-                        // Detecção de tipo baseada no ID
-                        if (idLower.includes('image') || idLower.includes('flux') || idLower.includes('sdxl') || idLower.includes('midjourney') || idLower.includes('diffusion') || idLower.includes('dall-e')) {
-                            type = 'image';
-                        } else if (idLower.includes('video') || idLower.includes('luma') || idLower.includes('kling') || idLower.includes('runway')) {
-                            type = 'video';
-                        } else if (idLower.includes('audio') || idLower.includes('music') || idLower.includes('speech') || idLower.includes('tts')) {
-                            type = 'audio';
-                        }
-
-                        allModels.push({
-                            id: m.id,
-                            name: m.id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-                            provider: providerName,
-                            type: type
-                        });
-                    });
-                }
-            } catch (e) {
-                console.log(`Erro ao buscar modelos do provider ${providerName}:`, e.message);
-            }
+        // Processar modelos de texto do Pollinations
+        if (textModelsRes.data && Array.isArray(textModelsRes.data)) {
+            textModelsRes.data.forEach(m => {
+                allModels.push({
+                    id: m.name,
+                    name: m.description || m.name,
+                    provider: 'pollinations-ai',
+                    type: 'chat',
+                    tools: m.tools || false,
+                    vision: m.vision || false,
+                    aliases: m.aliases || []
+                });
+            });
         }
         
-        // Se conseguiu buscar modelos, salva no cache
+        // Processar modelos de imagem do Pollinations
+        if (imageModelsRes.data && Array.isArray(imageModelsRes.data)) {
+            imageModelsRes.data.forEach(modelId => {
+                const names = { flux: 'Flux', turbo: 'SDXL Turbo', gptimage: 'GPT Image' };
+                allModels.push({
+                    id: modelId,
+                    name: names[modelId] || modelId,
+                    provider: 'pollinations-ai',
+                    type: 'image'
+                });
+            });
+        }
+        
+        // Adicionar modelos do DeepInfra (gratuitos)
+        const deepinfraModels = [
+            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B Instruct', type: 'chat' },
+            { id: 'meta-llama/Llama-3.2-90B-Vision-Instruct', name: 'Llama 3.2 90B Vision', type: 'chat', vision: true },
+            { id: 'meta-llama/Llama-3.2-11B-Vision-Instruct', name: 'Llama 3.2 11B Vision', type: 'chat', vision: true },
+            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B Instruct', type: 'chat' },
+            { id: 'Qwen/QwQ-32B', name: 'Qwen QwQ 32B', type: 'chat' },
+            { id: 'microsoft/WizardLM-2-8x22B', name: 'WizardLM 2 8x22B', type: 'chat' },
+            { id: 'mistralai/Mixtral-8x22B-Instruct-v0.1', name: 'Mixtral 8x22B', type: 'chat' },
+            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', type: 'chat' },
+            { id: 'nvidia/Llama-3.1-Nemotron-70B-Instruct', name: 'Nemotron 70B', type: 'chat' },
+            { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', type: 'chat' },
+        ];
+        deepinfraModels.forEach(m => {
+            allModels.push({ ...m, provider: 'deepinfra' });
+        });
+        
+        // Adicionar modelos do Cloudflare Worker (gratuitos!)
+        const cloudflareModels = [
+            // Modelos de texto grandes
+            { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B (CF)', type: 'chat' },
+            { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B (CF)', type: 'chat' },
+            { id: '@cf/qwen/qwq-32b', name: 'Qwen QwQ 32B (CF)', type: 'chat' },
+            { id: '@cf/qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B (CF)', type: 'chat' },
+            { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen 3 30B (CF)', type: 'chat' },
+            { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 24B (CF)', type: 'chat' },
+            { id: '@cf/aisingapore/gemma-sea-lion-v4-27b-it', name: 'Gemma Sea Lion 27B (CF)', type: 'chat' },
+            { id: '@cf/google/gemma-3-12b-it', name: 'Gemma 3 12B (CF)', type: 'chat' },
+            { id: '@cf/ibm-granite/granite-4.0-h-micro', name: 'IBM Granite 4.0 (CF)', type: 'chat' },
+            { id: '@cf/meta/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B (CF)', type: 'chat' },
+            // Modelos com visão
+            { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision (CF)', type: 'chat', vision: true },
+            // Modelos de código
+            { id: '@hf/thebloke/deepseek-coder-6.7b-instruct-awq', name: 'DeepSeek Coder 6.7B (CF)', type: 'chat' },
+            // Modelos de imagem
+            { id: '@cf/black-forest-labs/flux-1-schnell', name: 'Flux Schnell (CF)', type: 'image' },
+            { id: '@cf/black-forest-labs/flux-2-dev', name: 'Flux 2 Dev (CF)', type: 'image' },
+            { id: '@cf/bytedance/stable-diffusion-xl-lightning', name: 'SDXL Lightning (CF)', type: 'image' },
+            { id: '@cf/stabilityai/stable-diffusion-xl-base-1.0', name: 'SDXL Base (CF)', type: 'image' },
+            { id: '@cf/lykon/dreamshaper-8-lcm', name: 'Dreamshaper 8 (CF)', type: 'image' },
+            { id: '@cf/leonardo/phoenix-1.0', name: 'Leonardo Phoenix (CF)', type: 'image' },
+            { id: '@cf/leonardo/lucid-origin', name: 'Leonardo Lucid (CF)', type: 'image' },
+        ];
+        cloudflareModels.forEach(m => {
+            allModels.push({ ...m, provider: 'cloudflare' });
+        });
+        
+        // ============ PROVIDERS COM API KEY GRATUITA ============
+        
+        // Groq - Ultra rápido! (se tiver API key configurada)
+        // Obter key gratuita em: https://console.groq.com/keys
+        if (process.env.GROQ_API_KEY) {
+            const groqModels = [
+                { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq - Ultra Fast)', type: 'chat', speed: 'ultra-fast' },
+                { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B (Groq)', type: 'chat', speed: 'very-fast' },
+                { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant (Groq)', type: 'chat', speed: 'instant' },
+                { id: 'gemma2-9b-it', name: 'Gemma 2 9B (Groq)', type: 'chat', speed: 'very-fast' },
+                { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B (Groq)', type: 'chat', speed: 'fast' },
+            ];
+            groqModels.forEach(m => {
+                allModels.push({ ...m, provider: 'groq' });
+            });
+        }
+        
+        // Cerebras - Rápido (se tiver API key configurada)
+        // Obter key gratuita em: https://cloud.cerebras.ai/
+        if (process.env.CEREBRAS_API_KEY) {
+            const cerebrasModels = [
+                { id: 'llama3.1-70b', name: 'Llama 3.1 70B (Cerebras - Fast)', type: 'chat', speed: 'fast' },
+                { id: 'llama3.1-8b', name: 'Llama 3.1 8B (Cerebras)', type: 'chat', speed: 'very-fast' },
+                { id: 'llama-3.3-70b', name: 'Llama 3.3 70B (Cerebras)', type: 'chat', speed: 'fast' },
+                { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 Distill 70B (Cerebras)', type: 'chat', speed: 'fast' },
+            ];
+            cerebrasModels.forEach(m => {
+                allModels.push({ ...m, provider: 'cerebras' });
+            });
+        }
+        
         if (allModels.length > 0) {
-            // Remove duplicatas por ID
-            const uniqueModels = [...new Map(allModels.map(m => [m.id, m])).values()];
-            g4fModelsCache = { data: uniqueModels, lastFetch: now };
+            g4fModelsCache = { data: allModels, lastFetch: now };
             
             // Salva no MongoDB para persistência
             await connectDB();
             await mongoose.connection.db.collection('g4f_cache').updateOne(
                 { _id: 'g4f_data' },
-                { $set: { models: uniqueModels, updated_at: new Date() } },
+                { $set: { models: allModels, updated_at: new Date() } },
                 { upsert: true }
             );
             
-            return res.json(uniqueModels);
+            return res.json(allModels);
         }
     } catch (e) {
         console.error('Erro ao buscar modelos g4f:', e.message);
@@ -248,17 +329,25 @@ app.get('/api/models/g4f', async (req, res) => {
         console.log('G4F cache não encontrado');
     }
     
-    // Fallback final: Lista de modelos conhecidos do pollinations-ai
+    // Fallback final: Lista de modelos conhecidos
     const g4fModels = [
-        { id: 'deepseek-v3', name: 'DeepSeek V3.1', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'searchgpt', name: 'Gemini Search', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.2 24B', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'gpt-5-mini', name: 'OpenAI GPT-5 Nano', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'llama-4-maverick', name: 'Llama 4 Maverick', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'claude-hybridspace', name: 'Claude Hybridspace', provider: 'pollinations-ai', type: 'chat' },
-        { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', provider: 'pollinations-ai', type: 'chat' },
+        // Pollinations - Texto
+        { id: 'deepseek', name: 'DeepSeek V3.1', provider: 'pollinations-ai', type: 'chat', tools: true },
+        { id: 'gemini', name: 'Gemini 2.5 Flash Lite', provider: 'pollinations-ai', type: 'chat', tools: true, vision: true },
+        { id: 'openai', name: 'GPT-5 Nano', provider: 'pollinations-ai', type: 'chat', tools: true, vision: true },
+        { id: 'mistral', name: 'Mistral Small 3.2 24B', provider: 'pollinations-ai', type: 'chat', tools: true },
+        { id: 'qwen-coder', name: 'Qwen 2.5 Coder 32B', provider: 'pollinations-ai', type: 'chat', tools: true },
+        // Pollinations - Imagem
+        { id: 'flux', name: 'Flux', provider: 'pollinations-ai', type: 'image' },
+        { id: 'turbo', name: 'SDXL Turbo', provider: 'pollinations-ai', type: 'image' },
+        { id: 'gptimage', name: 'GPT Image', provider: 'pollinations-ai', type: 'image' },
+        // DeepInfra
+        { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', provider: 'deepinfra', type: 'chat' },
+        { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', provider: 'deepinfra', type: 'chat' },
+        { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', provider: 'deepinfra', type: 'chat' },
+        // Cloudflare Worker
+        { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B (CF)', provider: 'cloudflare', type: 'chat' },
+        { id: '@cf/qwen/qwq-32b', name: 'Qwen QwQ 32B (CF)', provider: 'cloudflare', type: 'chat' },
     ];
     
     g4fModelsCache = { data: g4fModels, lastFetch: now };
@@ -516,9 +605,9 @@ app.delete('/api/chats/:id', auth, async (req, res) => {
 
 // ============ CHAT COM IA ============
 
-// Helper para chamada GPT4Free usando @gpt4free/g4f.dev
+// Helper para chamada GPT4Free usando g4f.dev client
 const callG4F = async (model, messages, preferredProvider = null) => {
-    const { createG4FClient: createClient } = await loadG4F();
+    const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
     let provider = preferredProvider;
@@ -530,30 +619,59 @@ const callG4F = async (model, messages, preferredProvider = null) => {
         modelName = parts.slice(1).join('/');
     }
     
-    // Lista de provedores para tentar (em ordem de prioridade) - usando nomes do g4f.dev
-    const providersToTry = provider 
-        ? [provider]
-        : ['pollinations-ai', 'default', 'puter', 'deep-infra', 'hugging-face'];
+    // Determina qual client usar baseado no provider ou no nome do modelo
+    const providersToTry = [];
+    
+    // Cloudflare Worker - modelos começam com @cf/ ou @hf/
+    if (provider === 'cloudflare' || model.startsWith('@cf/') || model.startsWith('@hf/')) {
+        providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true });
+    }
+    // DeepInfra - modelos com formato "org/model"
+    else if (provider === 'deepinfra' || modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
+        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
+    }
+    // Groq - ultra rápido (precisa de API key)
+    else if (provider === 'groq' && process.env.GROQ_API_KEY) {
+        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: process.env.GROQ_API_KEY }) });
+    }
+    // Cerebras - rápido (precisa de API key)
+    else if (provider === 'cerebras' && process.env.CEREBRAS_API_KEY) {
+        providersToTry.push({ name: 'cerebras', client: new g4f.Cerebras({ apiKey: process.env.CEREBRAS_API_KEY }) });
+    }
+    
+    // Fallbacks
+    // Se tiver Groq configurado, usa como fallback (é muito rápido)
+    if (process.env.GROQ_API_KEY && !providersToTry.some(p => p.name === 'groq')) {
+        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: process.env.GROQ_API_KEY }) });
+    }
+    
+    // Pollinations sempre como fallback final (funciona sempre)
+    providersToTry.push({ name: 'pollinations-ai', client: new g4f.PollinationsAI() });
     
     const errors = [];
     
-    for (const providerKey of providersToTry) {
+    for (const { name, client, isWorker } of providersToTry) {
         try {
-            const client = createClient(providerKey);
-            console.log(`Tentando G4F com provedor: ${providerKey}, modelo: ${modelName}`);
+            console.log(`Tentando G4F com provedor: ${name}, modelo: ${model}`);
             
             const response = await client.chat.completions.create({
-                model: modelName,
+                model: model, // Usa o modelo completo para Cloudflare
                 messages: messages,
             });
             
+            // Cloudflare Worker retorna em formato diferente
+            if (isWorker && response?.response) {
+                console.log(`G4F sucesso com provedor: ${name} (Worker)`);
+                return { role: 'assistant', content: response.response };
+            }
+            
             if (response?.choices?.[0]?.message) {
-                console.log(`G4F sucesso com provedor: ${providerKey}`);
+                console.log(`G4F sucesso com provedor: ${name}`);
                 return response.choices[0].message;
             }
         } catch (e) {
-            console.log(`G4F provedor ${providerKey} falhou:`, e.message);
-            errors.push(`${providerKey}: ${e.message}`);
+            console.log(`G4F provedor ${name} falhou:`, e.message);
+            errors.push(`${name}: ${e.message}`);
             continue;
         }
     }
@@ -563,7 +681,7 @@ const callG4F = async (model, messages, preferredProvider = null) => {
 
 // Helper para chamada GPT4Free COM SUPORTE A TOOLS
 const callG4FWithTools = async (model, messages, tools, preferredProvider = null) => {
-    const { createG4FClient: createClient } = await loadG4F();
+    const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
     let provider = preferredProvider;
@@ -575,32 +693,44 @@ const callG4FWithTools = async (model, messages, tools, preferredProvider = null
         modelName = parts.slice(1).join('/');
     }
     
-    // Lista de provedores que podem suportar tools (baseado na documentação do usuário)
-    const toolSupportedProviders = provider 
-        ? [provider]
-        : ['pollinations-ai', 'default', 'deep-infra', 'hugging-face'];
+    // Determina qual client usar
+    const providersToTry = [];
+    
+    // Cloudflare Worker não suporta tools, vai direto para o fallback
+    if (provider === 'cloudflare' || model.startsWith('@cf/') || model.startsWith('@hf/')) {
+        // Cloudflare não suporta tools, tenta sem
+        console.log('Cloudflare Worker não suporta tools, tentando sem...');
+        return await callG4F(model, messages, preferredProvider);
+    }
+    
+    // DeepInfra
+    if (provider === 'deepinfra' || modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
+        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
+    }
+    
+    // Pollinations sempre como fallback
+    providersToTry.push({ name: 'pollinations-ai', client: new g4f.PollinationsAI() });
     
     const errors = [];
     
-    for (const providerKey of toolSupportedProviders) {
+    for (const { name, client } of providersToTry) {
         try {
-            const client = createClient(providerKey);
-            console.log(`Tentando G4F com tools - provedor: ${providerKey}, modelo: ${modelName}`);
+            console.log(`Tentando G4F com tools - provedor: ${name}, modelo: ${model}`);
             
             const response = await client.chat.completions.create({
-                model: modelName,
+                model: model,
                 messages: messages,
                 tools: tools,
                 tool_choice: "auto"
             });
             
             if (response?.choices?.[0]?.message) {
-                console.log(`G4F com tools sucesso com provedor: ${providerKey}`);
+                console.log(`G4F com tools sucesso com provedor: ${name}`);
                 return response.choices[0].message;
             }
         } catch (e) {
-            console.log(`G4F com tools - provedor ${providerKey} falhou:`, e.message);
-            errors.push(`${providerKey}: ${e.message}`);
+            console.log(`G4F com tools - provedor ${name} falhou:`, e.message);
+            errors.push(`${name}: ${e.message}`);
             continue;
         }
     }
