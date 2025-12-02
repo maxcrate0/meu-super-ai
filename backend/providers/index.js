@@ -11,7 +11,7 @@ const axios = require('axios');
 const clientCache = new Map();
 
 // URL do servidor G4F Python (pode ser local ou remoto)
-const G4F_PYTHON_API_URL = process.env.G4F_API_URL || 'http://localhost:8080';
+const G4F_PYTHON_API_URL = process.env.G4F_API_URL || 'http://meu-super-ai-g4f.southcentralus.azurecontainer.io:8080';
 
 /**
  * Configuração dos providers disponíveis
@@ -375,7 +375,12 @@ async function listG4FPythonProviders() {
  * Faz uma chamada de chat via G4F Python
  */
 async function chatG4FPython(options) {
-  const { model, messages, stream = false, provider = null } = options;
+  let { model, messages, stream = false, provider = null } = options;
+  
+  // Remove prefixo 'g4f:' se presente
+  if (model && model.startsWith('g4f:')) {
+    model = model.replace('g4f:', '');
+  }
   
   try {
     const payload = {
