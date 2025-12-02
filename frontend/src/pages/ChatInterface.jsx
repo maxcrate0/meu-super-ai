@@ -837,24 +837,28 @@ export default function ChatInterface({ user, setUser }) {
                 </label>
                 <div className="flex gap-2">
                   <button 
-                    onClick={() => {
-                      setSelectedProvider('openrouter');
-                    }}
-                    className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
+                    onClick={() => setSelectedProvider('openrouter')}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
                       selectedProvider === 'openrouter' ? 'bg-indigo-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
                     }`}
                   >
-                    <Database size={18}/> OpenRouter
+                    <Database size={16}/> OpenRouter
                   </button>
                   <button 
-                    onClick={() => {
-                      setSelectedProvider('g4f');
-                    }}
-                    className={`flex-1 p-3 rounded-lg flex items-center justify-center gap-2 transition ${
+                    onClick={() => setSelectedProvider('g4f')}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
                       selectedProvider === 'g4f' ? 'bg-emerald-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
                     }`}
                   >
-                    <Zap size={18}/> GPT4Free
+                    <Zap size={16}/> GPT4Free
+                  </button>
+                  <button 
+                    onClick={() => setSelectedProvider('groq')}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
+                      selectedProvider === 'groq' ? 'bg-orange-600 text-white' : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200')
+                    }`}
+                  >
+                    ⚡ Groq
                   </button>
                 </div>
               </div>
@@ -877,7 +881,7 @@ export default function ChatInterface({ user, setUser }) {
                   />
                 </div>
                 <div className={`${bgInput} ${borderColor} border rounded-lg max-h-48 overflow-y-auto`}>
-                  {selectedProvider === 'openrouter' ? (
+                  {selectedProvider === 'openrouter' && (
                     models
                       .filter(m => {
                         if (activeModelTab === 'text') return !m.type || m.type === 'chat';
@@ -898,10 +902,11 @@ export default function ChatInterface({ user, setUser }) {
                           <span className="truncate">{m.name}</span>
                         </button>
                       ))
-                  ) : (
+                  )}
+                  {selectedProvider === 'g4f' && (
                     g4fModels
+                      .filter(m => m.provider !== 'groq') // Excluir Groq do G4F
                       .filter(m => {
-                        // Filtrar por tipo igual ao OpenRouter
                         if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                         return m.type === activeModelTab;
                       })
@@ -922,18 +927,42 @@ export default function ChatInterface({ user, setUser }) {
                         </button>
                       ))
                   )}
+                  {selectedProvider === 'groq' && (
+                    g4fModels
+                      .filter(m => m.provider === 'groq') // Apenas Groq
+                      .filter(m => {
+                        if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                        return m.type === activeModelTab;
+                      })
+                      .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+                      .map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => setSelectedModels(prev => ({ ...prev, [activeModelTab]: m.id }))}
+                          className={`w-full text-left px-3 py-2 text-sm transition flex items-center gap-2 ${
+                            selectedModels[activeModelTab] === m.id 
+                              ? 'bg-orange-600 text-white' 
+                              : 'hover:bg-orange-500/20'
+                          }`}
+                        >
+                          <Zap size={14} className={selectedModels[activeModelTab] === m.id ? 'text-white' : 'text-orange-400'}/>
+                          <span className="truncate">{m.name}</span>
+                          {m.speed && <span className={`text-xs ${selectedModels[activeModelTab] === m.id ? 'text-orange-200' : 'text-gray-500'}`}>({m.speed})</span>}
+                        </button>
+                      ))
+                  )}
                 </div>
                 <div className="flex justify-between items-center mt-2">
                   <p className={`text-xs ${textMuted}`}>
-                    {selectedProvider === 'openrouter' 
-                      ? models.filter(m => {
-                          if (activeModelTab === 'text') return !m.type || m.type === 'chat';
-                          return m.type === activeModelTab;
-                        }).length 
-                      : g4fModels.filter(m => {
-                          if (activeModelTab === 'text') return !m.type || m.type === 'chat';
-                          return m.type === activeModelTab;
-                        }).length} {t.modelsAvailable}
+                    {(() => {
+                      const typeFilter = m => {
+                        if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                        return m.type === activeModelTab;
+                      };
+                      if (selectedProvider === 'openrouter') return models.filter(typeFilter).length;
+                      if (selectedProvider === 'groq') return g4fModels.filter(m => m.provider === 'groq').filter(typeFilter).length;
+                      return g4fModels.filter(m => m.provider !== 'groq').filter(typeFilter).length;
+                    })()} {t.modelsAvailable}
                   </p>
                   <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title={t.refreshModels}>
                     <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>

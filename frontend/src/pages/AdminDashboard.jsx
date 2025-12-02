@@ -4,7 +4,7 @@ import axios from 'axios';
 import { 
   User, MessageSquare, Wrench, X, Trash2, Key, Users, 
   BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
-  Send, Mail, FileText, Layout
+  Send, Mail, FileText, Layout, Database, Zap
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -36,6 +36,7 @@ export default function AdminDashboard() {
     video: ''
   });
   const [activeModelTab, setActiveModelTab] = useState('text');
+  const [selectedModelProvider, setSelectedModelProvider] = useState('openrouter');
   const [showModelModal, setShowModelModal] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -785,6 +786,37 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
+              {/* Seletor de Provider */}
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">Provider</label>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setSelectedModelProvider('openrouter')}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
+                      selectedModelProvider === 'openrouter' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-400'
+                    }`}
+                  >
+                    <Database size={14}/> OpenRouter
+                  </button>
+                  <button 
+                    onClick={() => setSelectedModelProvider('g4f')}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
+                      selectedModelProvider === 'g4f' ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-400'
+                    }`}
+                  >
+                    <Zap size={14}/> GPT4Free
+                  </button>
+                  <button 
+                    onClick={() => setSelectedModelProvider('groq')}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center gap-1 transition text-sm ${
+                      selectedModelProvider === 'groq' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-400'
+                    }`}
+                  >
+                    ⚡ Groq
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="text-sm text-gray-400 block mb-2">
                   {t.model} - {activeModelTab === 'text' ? t.modelsModal.text : 
@@ -800,17 +832,29 @@ export default function AdminDashboard() {
                   
                   {models
                     .filter(m => {
+                      // Filtrar por provider
+                      if (selectedModelProvider === 'openrouter') return m.source === 'OpenRouter';
+                      if (selectedModelProvider === 'groq') return m.source === 'GPT4Free' && m.provider === 'groq';
+                      return m.source === 'GPT4Free' && m.provider !== 'groq';
+                    })
+                    .filter(m => {
                       if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                       return m.type === activeModelTab;
                     })
                     .sort((a,b) => a.name.localeCompare(b.name))
                     .map(m => (
-                      <option key={m.id} value={m.id}>{m.name} ({m.source})</option>
+                      <option key={m.id} value={m.id}>{m.name}{m.speed ? ` (${m.speed})` : ''}</option>
                     ))
                   }
                 </select>
                 <p className="text-xs text-gray-500 mt-2">
-                  {models.filter(m => {
+                  {models
+                    .filter(m => {
+                      if (selectedModelProvider === 'openrouter') return m.source === 'OpenRouter';
+                      if (selectedModelProvider === 'groq') return m.source === 'GPT4Free' && m.provider === 'groq';
+                      return m.source === 'GPT4Free' && m.provider !== 'groq';
+                    })
+                    .filter(m => {
                       if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                       return m.type === activeModelTab;
                     }).length} {texts.chat.modelsAvailable}
