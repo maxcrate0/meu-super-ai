@@ -2878,17 +2878,33 @@ app.get('/api/admin/groq/models', auth, adminOnly, async (req, res) => {
             return res.json(groqModelsCache.data);
         }
         
+        // Limites conhecidos da documentação do Groq (tier gratuito)
+        // https://console.groq.com/docs/rate-limits
+        const knownLimits = {
+            'llama-3.3-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'llama-3.3-70b-specdec': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'llama-3.1-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'llama-3.1-8b-instant': { rpm: 30, rpd: 14400, tpm: 20000, tpd: 500000 },
+            'llama3-70b-8192': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'llama3-8b-8192': { rpm: 30, rpd: 14400, tpm: 30000, tpd: 500000 },
+            'gemma2-9b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 250000 },
+            'gemma-7b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 250000 },
+            'mixtral-8x7b-32768': { rpm: 30, rpd: 14400, tpm: 5000, tpd: 100000 },
+            'llama-guard-3-8b': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 250000 },
+            'llama3-groq-70b-8192-tool-use-preview': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'llama3-groq-8b-8192-tool-use-preview': { rpm: 30, rpd: 14400, tpm: 30000, tpd: 500000 },
+            'distil-whisper-large-v3-en': { rpm: 20, rpd: 2000, tpm: 0, tpd: 0 },
+            'whisper-large-v3': { rpm: 20, rpd: 2000, tpm: 0, tpd: 0 },
+            'whisper-large-v3-turbo': { rpm: 20, rpd: 2000, tpm: 0, tpd: 0 },
+            // Limites padrão para modelos não listados
+            '_default': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 }
+        };
+        
         // Buscar modelos da API do Groq
         const response = await axios.get('https://api.groq.com/openai/v1/models', {
             headers: { 'Authorization': `Bearer ${groqKey}` },
             timeout: 10000
         });
-        
-        // Buscar limites de rate limit
-        const limitsResponse = await axios.get('https://api.groq.com/openai/v1/rate_limits', {
-            headers: { 'Authorization': `Bearer ${groqKey}` },
-            timeout: 10000
-        }).catch(() => ({ data: null }));
         
         // Buscar modelos ocultos do banco
         await connectDB();
@@ -2898,15 +2914,23 @@ app.get('/api/admin/groq/models', auth, adminOnly, async (req, res) => {
         // Processar modelos
         const models = response.data.data
             .filter(m => m.id && !m.id.includes('whisper')) // Filtrar whisper (audio)
-            .map(m => ({
-                id: m.id,
-                name: m.id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-                owned_by: m.owned_by,
-                context_window: m.context_window || 8192,
-                created: m.created,
-                hidden: hiddenModels.includes(m.id),
-                limits: limitsResponse.data?.find(l => l.model === m.id) || null
-            }));
+            .map(m => {
+                const modelLimits = knownLimits[m.id] || knownLimits['_default'];
+                return {
+                    id: m.id,
+                    name: m.id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                    owned_by: m.owned_by,
+                    context_window: m.context_window || 8192,
+                    created: m.created,
+                    hidden: hiddenModels.includes(m.id),
+                    limits: {
+                        requestsPerMinute: modelLimits.rpm,
+                        requestsPerDay: modelLimits.rpd,
+                        tokensPerMinute: modelLimits.tpm,
+                        tokensPerDay: modelLimits.tpd
+                    }
+                };
+            });
         
         groqModelsCache = { data: models, lastFetch: now };
         res.json(models);
@@ -2914,15 +2938,15 @@ app.get('/api/admin/groq/models', auth, adminOnly, async (req, res) => {
     } catch (e) {
         console.error('Erro ao buscar modelos Groq:', e.message);
         
-        // Fallback: retornar modelos conhecidos
+        // Fallback: retornar modelos conhecidos com limites
         const fallbackModels = [
-            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', context_window: 128000 },
-            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile', context_window: 128000 },
-            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', context_window: 128000 },
-            { id: 'llama3-70b-8192', name: 'Llama 3 70B', context_window: 8192 },
-            { id: 'llama3-8b-8192', name: 'Llama 3 8B', context_window: 8192 },
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B IT', context_window: 8192 },
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', context_window: 32768 },
+            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
+            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
+            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 20000, tokensPerDay: 500000 } },
+            { id: 'llama3-70b-8192', name: 'Llama 3 70B', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
+            { id: 'llama3-8b-8192', name: 'Llama 3 8B', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 30000, tokensPerDay: 500000 } },
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B IT', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 15000, tokensPerDay: 250000 } },
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', context_window: 32768, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 5000, tokensPerDay: 100000 } },
         ];
         res.json(fallbackModels);
     }

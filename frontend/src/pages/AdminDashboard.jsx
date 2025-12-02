@@ -69,25 +69,13 @@ export default function AdminDashboard() {
   const loadGroqData = async () => {
     setLoadingGroq(true);
     try {
-      const [modelsRes, statsRes, limitsRes] = await Promise.all([
+      const [modelsRes, statsRes] = await Promise.all([
         axios.get(API_URL + '/admin/groq/models', { headers: { Authorization: 'Bearer ' + token } }),
-        axios.get(API_URL + '/admin/groq/stats', { headers: { Authorization: 'Bearer ' + token } }),
-        axios.get(API_URL + '/admin/groq/limits', { headers: { Authorization: 'Bearer ' + token } })
+        axios.get(API_URL + '/admin/groq/stats', { headers: { Authorization: 'Bearer ' + token } })
       ]);
       
-      // Combinar modelos com limites
-      const limits = limitsRes.data?.models || {};
-      const modelsWithLimits = (modelsRes.data || []).map(m => ({
-        ...m,
-        limits: limits[m.id] ? {
-          requestsPerMinute: limits[m.id].rpm,
-          requestsPerDay: limits[m.id].rpd,
-          tokensPerMinute: limits[m.id].tpm,
-          tokensPerDay: limits[m.id].tpd
-        } : m.limits
-      }));
-      
-      setGroqModels(modelsWithLimits);
+      // Modelos já vêm com limites do backend
+      setGroqModels(modelsRes.data || []);
       
       // Estatísticas
       const stats = statsRes.data || {};
