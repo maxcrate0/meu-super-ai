@@ -38,14 +38,14 @@ const PROVIDERS = {
     supportsStreaming: true,
     defaultModel: 'llama-3.3-70b-versatile',
     // Limites oficiais do Groq por modelo (RPM, RPD, TPM, TPD)
+    // Atualizado em Dez 2024 - IDs SEM prefixos
     rateLimits: {
       'gemma2-9b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
       'llama-3.3-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
       'llama-3.1-8b-instant': { rpm: 30, rpd: 14400, tpm: 20000, tpd: 500000 },
-      'llama-3.2-1b-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 500000 },
-      'llama-3.2-3b-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 500000 },
-      'llama-3.2-11b-vision-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 500000 },
-      'llama-3.2-90b-vision-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 500000 },
+      'llama-4-maverick-17b-128e-instruct': { rpm: 30, rpd: 1000, tpm: 6000, tpd: 200000 },
+      'llama-4-scout-17b-16e-instruct': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+      'llama-guard-4-12b': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
       'llama-guard-3-8b': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
       'mixtral-8x7b-32768': { rpm: 30, rpd: 14400, tpm: 5000, tpd: 500000 },
       'whisper-large-v3': { rpm: 20, rpd: 2000, tpm: null, tpd: null },
@@ -54,17 +54,11 @@ const PROVIDERS = {
       'playai-tts': { rpm: 30, rpd: 14400, tpm: 10000, tpd: null },
       'playai-tts-arabic': { rpm: 30, rpd: 14400, tpm: 10000, tpd: null },
       'qwen-qwq-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'mistral-saba-24b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
       'qwen-2.5-coder-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
       'qwen-2.5-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+      'mistral-saba-24b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
       'deepseek-r1-distill-qwen-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'deepseek-r1-distill-llama-70b-specdec': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
       'deepseek-r1-distill-llama-70b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'llama-3.1-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'llama-3-70b-8192': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'meta-llama-3-70b-instruct': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'llama3-70b-8192': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
-      'llama3-8b-8192': { rpm: 30, rpd: 14400, tpm: 20000, tpd: 500000 },
       'compound-beta': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
       'compound-beta-mini': { rpm: 30, rpd: 14400, tpm: 20000, tpd: 500000 }
     }
