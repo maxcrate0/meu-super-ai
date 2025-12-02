@@ -900,6 +900,11 @@ export default function ChatInterface({ user, setUser }) {
                       ))
                   ) : (
                     g4fModels
+                      .filter(m => {
+                        // Filtrar por tipo igual ao OpenRouter
+                        if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                        return m.type === activeModelTab;
+                      })
                       .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
                       .map(m => (
                         <button
@@ -925,7 +930,10 @@ export default function ChatInterface({ user, setUser }) {
                           if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                           return m.type === activeModelTab;
                         }).length 
-                      : g4fModels.length} {t.modelsAvailable}
+                      : g4fModels.filter(m => {
+                          if (activeModelTab === 'text') return !m.type || m.type === 'chat';
+                          return m.type === activeModelTab;
+                        }).length} {t.modelsAvailable}
                   </p>
                   <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title={t.refreshModels}>
                     <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>
