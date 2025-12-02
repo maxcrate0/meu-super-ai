@@ -89,6 +89,9 @@ class MemoryCache {
 
 const cache = new MemoryCache();
 
+// ============ SISTEMA DE PROVIDERS DE IA ============
+const providers = require('./providers');
+
 // GPT4Free - carrega o client direto do g4f.dev
 let g4fClients = null;
 
@@ -695,6 +698,61 @@ app.get('/api/models/g4f', async (req, res) => {
     res.json(g4fModels);
 });
 
+// ============ ENDPOINT DE PROVIDERS ============
+
+// Lista todos os providers disponíveis
+app.get('/api/providers', async (req, res) => {
+    try {
+        const providerList = providers.listProviders();
+        
+        // Adiciona informação sobre quais têm API key configurada
+        const groqKey = await getGroqApiKey();
+        const openRouterKey = await getApiKey({ personal_api_key: null }); // Global key
+        
+        const enrichedProviders = providerList.map(p => ({
+            ...p,
+            configured: p.id === 'groq' ? !!groqKey :
+                        p.id === 'openrouter' ? !!openRouterKey :
+                        p.id === 'cerebras' ? !!process.env.CEREBRAS_API_KEY :
+                        p.id === 'huggingface' ? !!process.env.HUGGINGFACE_API_KEY :
+                        !p.requiresKey // Pollinations, DeepInfra, Cloudflare não precisam
+        }));
+        
+        res.json(enrichedProviders);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Informações detalhadas de um provider
+app.get('/api/providers/:id', async (req, res) => {
+    try {
+        const config = providers.getProviderConfig(req.params.id);
+        if (!config) {
+            return res.status(404).json({ error: 'Provider não encontrado' });
+        }
+        
+        res.json({
+            id: req.params.id,
+            ...config,
+            // Não expor informações sensíveis
+            keyEnvVar: undefined
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Rate limits do Groq (para exibir no frontend)
+app.get('/api/providers/groq/limits', async (req, res) => {
+    try {
+        const groqConfig = providers.getProviderConfig('groq');
+        res.json(groqConfig?.rateLimits || {});
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ============ AUTH (com rate limiting) ============
 
 app.post('/api/register', authLimiter, async (req, res) => {
@@ -950,6 +1008,264 @@ app.delete('/api/chats/:id', auth, async (req, res) => {
 
 // ============ CHAT COM IA (com rate limiting) ============
 
+// ============ ARQUITETURA DE PROVEDORES ============
+
+// Handler para OpenRouter (modelos comerciais via API key)
+const callOpenRouter = async (model, messages, apiKey) => {
+    const openai = new OpenAI({
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey,
+        defaultHeaders: {
+            "HTTP-Referer": "https://meu-super-ai.vercel.app",
+            "X-Title": "jgspAI"
+        }
+    });
+    
+    const response = await openai.chat.completions.create({
+        model: model || "google/gemini-2.0-flash-exp:free",
+        messages
+    });
+    
+    const msg = response.choices[0].message;
+    msg._provider = 'openrouter';
+    msg._tokens = response.usage?.total_tokens || 0;
+    return msg;
+};
+
+// Handler para Groq (API ultra-rápida)
+const callGroq = async (model, messages) => {
+    const g4f = await loadG4F();
+    const groqKey = await getGroqApiKey();
+    
+    if (!groqKey) {
+        throw new Error('Groq API Key não configurada. Configure no painel de admin.');
+    }
+    
+    const client = new g4f.Groq({ apiKey: groqKey });
+    
+    const response = await client.chat.completions.create({
+        model: model,
+        messages: messages
+    });
+    
+    if (response?.choices?.[0]?.message) {
+        const msg = response.choices[0].message;
+        msg._provider = 'groq';
+        msg._tokens = response.usage?.total_tokens || 0;
+        return msg;
+    }
+    
+    throw new Error('Resposta inválida do Groq');
+};
+
+// Handler para Cerebras (API rápida)
+const callCerebras = async (model, messages) => {
+    const g4f = await loadG4F();
+    
+    if (!process.env.CEREBRAS_API_KEY) {
+        throw new Error('Cerebras API Key não configurada');
+    }
+    
+    const client = new g4f.Cerebras({ apiKey: process.env.CEREBRAS_API_KEY });
+    
+    const response = await client.chat.completions.create({
+        model: model,
+        messages: messages
+    });
+    
+    if (response?.choices?.[0]?.message) {
+        const msg = response.choices[0].message;
+        msg._provider = 'cerebras';
+        msg._tokens = response.usage?.total_tokens || 0;
+        return msg;
+    }
+    
+    throw new Error('Resposta inválida do Cerebras');
+};
+
+// Handler para Pollinations (gratuito, sempre funciona)
+const callPollinations = async (model, messages) => {
+    const g4f = await loadG4F();
+    const client = new g4f.PollinationsAI();
+    
+    const response = await client.chat.completions.create({
+        model: model || 'openai',
+        messages: messages
+    });
+    
+    if (response?.choices?.[0]?.message) {
+        const msg = response.choices[0].message;
+        msg._provider = 'pollinations';
+        msg._tokens = response.usage?.total_tokens || 0;
+        return msg;
+    }
+    
+    throw new Error('Resposta inválida do Pollinations');
+};
+
+// Handler para DeepInfra
+const callDeepInfra = async (model, messages) => {
+    const g4f = await loadG4F();
+    const client = new g4f.DeepInfra();
+    
+    const response = await client.chat.completions.create({
+        model: model,
+        messages: messages
+    });
+    
+    if (response?.choices?.[0]?.message) {
+        const msg = response.choices[0].message;
+        msg._provider = 'deepinfra';
+        msg._tokens = response.usage?.total_tokens || 0;
+        return msg;
+    }
+    
+    throw new Error('Resposta inválida do DeepInfra');
+};
+
+// Handler para Cloudflare Workers AI
+const callCloudflare = async (model, messages) => {
+    const g4f = await loadG4F();
+    const client = new g4f.Worker();
+    
+    const response = await client.chat.completions.create({
+        model: model,
+        messages: messages
+    });
+    
+    // Cloudflare retorna em formato diferente
+    if (response?.response) {
+        return { role: 'assistant', content: response.response, _provider: 'cloudflare', _tokens: 0 };
+    }
+    
+    if (response?.choices?.[0]?.message) {
+        const msg = response.choices[0].message;
+        msg._provider = 'cloudflare';
+        msg._tokens = response.usage?.total_tokens || 0;
+        return msg;
+    }
+    
+    throw new Error('Resposta inválida do Cloudflare');
+};
+
+// ============ ROTEADOR DE PROVEDORES ============
+// Determina qual provedor usar baseado no provider selecionado e modelo
+
+const routeToProvider = async (provider, model, messages, apiKey = null) => {
+    console.log(`[Router] Provider: ${provider}, Model: ${model}`);
+    
+    // Extrai sub-provider do modelo se estiver no formato "provider/model"
+    let subProvider = null;
+    let modelName = model;
+    
+    if (model.includes('/') && !model.startsWith('@')) {
+        const parts = model.split('/');
+        // Verifica se primeiro parte é um provider conhecido
+        if (['deepinfra', 'cloudflare', 'groq', 'pollinations', 'cerebras'].includes(parts[0].toLowerCase())) {
+            subProvider = parts[0].toLowerCase();
+            modelName = parts.slice(1).join('/');
+        }
+    }
+    
+    // Usa sub-provider do modelo se especificado
+    const effectiveProvider = subProvider || provider;
+    
+    switch (effectiveProvider) {
+        case 'openrouter':
+            if (!apiKey) throw new Error('OpenRouter requer API Key');
+            return await callOpenRouter(model, messages, apiKey);
+            
+        case 'groq':
+            return await callGroq(modelName, messages);
+            
+        case 'cerebras':
+            return await callCerebras(modelName, messages);
+            
+        case 'cloudflare':
+            return await callCloudflare(model, messages);
+            
+        case 'deepinfra':
+            return await callDeepInfra(modelName, messages);
+            
+        case 'pollinations':
+            return await callPollinations(modelName, messages);
+            
+        case 'g4f':
+        default:
+            // G4F usa fallback chain
+            return await callG4FWithFallback(model, messages);
+    }
+};
+
+// Helper para chamada GPT4Free com fallback chain
+const callG4FWithFallback = async (model, messages) => {
+    const g4f = await loadG4F();
+    
+    // Extrai o provedor do modelo se estiver no formato "provider/model"
+    let modelName = model;
+    let preferredProvider = null;
+    
+    if (model.includes('/')) {
+        const parts = model.split('/');
+        preferredProvider = parts[0];
+        modelName = parts.slice(1).join('/');
+    }
+    
+    // Determina ordem de provedores a tentar
+    const providersToTry = [];
+    
+    // Cloudflare Worker - modelos começam com @cf/ ou @hf/
+    if (model.startsWith('@cf/') || model.startsWith('@hf/')) {
+        providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true });
+    }
+    // DeepInfra - modelos com formato "org/model"
+    else if (modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
+        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
+    }
+    
+    // Fallbacks
+    const groqKey = await getGroqApiKey();
+    if (groqKey) {
+        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKey }) });
+    }
+    
+    // Pollinations sempre como fallback final
+    providersToTry.push({ name: 'pollinations', client: new g4f.PollinationsAI() });
+    
+    const errors = [];
+    
+    for (const { name, client, isWorker } of providersToTry) {
+        try {
+            console.log(`[G4F] Tentando provedor: ${name}, modelo: ${model}`);
+            
+            const response = await client.chat.completions.create({
+                model: model,
+                messages: messages,
+            });
+            
+            // Cloudflare Worker retorna em formato diferente
+            if (isWorker && response?.response) {
+                console.log(`[G4F] Sucesso com: ${name} (Worker)`);
+                return { role: 'assistant', content: response.response, _provider: name, _tokens: 0 };
+            }
+            
+            if (response?.choices?.[0]?.message) {
+                console.log(`[G4F] Sucesso com: ${name}`);
+                const msg = response.choices[0].message;
+                msg._provider = name;
+                msg._tokens = response.usage?.total_tokens || 0;
+                return msg;
+            }
+        } catch (e) {
+            console.log(`[G4F] ${name} falhou:`, e.message);
+            errors.push(`${name}: ${e.message}`);
+            continue;
+        }
+    }
+    
+    throw new Error(`Todos os provedores falharam: ${errors.join('; ')}`);
+};
+
 // Helper para chamada GPT4Free usando g4f.dev client
 const callG4F = async (model, messages, preferredProvider = null) => {
     const g4f = await loadG4F();
@@ -1099,113 +1415,91 @@ const callG4FWithTools = async (model, messages, tools, preferredProvider = null
     }
 };
 
+// ============ ROTA DE CHAT PRINCIPAL ============
+
 app.post('/api/chat', auth, chatLimiter, async (req, res) => {
-    const { chatId, messages, model, userSystemPrompt, provider } = req.body;
+    const { chatId, messages, model, userSystemPrompt, provider = 'openrouter' } = req.body;
     
-    // Se usar GPT4Free
-    if (provider === 'g4f') {
-        // Obtém system prompt global (com cache)
-        const globalSystemPrompt = await getGlobalSystemPrompt();
-        
-        const systemContent = [];
-        if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
-        if (userSystemPrompt) systemContent.push(userSystemPrompt);
-        if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
-        
-        const msgs = systemContent.length > 0 
-            ? [{ role: "system", content: systemContent.join('\n\n') }, ...messages]
-            : [...messages];
-        
-        try {
-            const msg = await callG4F(model, msgs);
-            res.json({ role: msg.role, content: msg.content });
-            
-            // Incrementa uso e salva histórico
-            User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
-            
-            // Rastreia uso do modelo (sucesso)
-            if (msg._provider) {
-                trackModelUsage(model, msg._provider, req.user._id, req.user.username, true, msg._tokens || 0);
-            }
-            
-            if (chatId) {
-                Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
-                    if (chat) {
-                        chat.messages.push(messages[messages.length - 1]);
-                        chat.messages.push({ role: msg.role, content: msg.content });
-                        chat.model = model;
-                        chat.updatedAt = Date.now();
-                        await chat.save();
-                    }
-                }).catch(err => console.error('Erro ao salvar histórico:', err));
-            }
-            return;
-        } catch (e) {
-            console.error('Erro G4F:', e.message);
-            
-            // Rastreia erro do modelo
-            const providerFromModel = model.includes('/') ? model.split('/')[0] : 'g4f';
-            trackModelUsage(model, providerFromModel, req.user._id, req.user.username, false, 0, e.message);
-            
-            return res.status(500).json({ error: e.message });
-        }
-    }
+    console.log(`[Chat] Provider: ${provider}, Model: ${model}, User: ${req.user.username}`);
     
-    // OpenRouter (padrão)
-    const apiKey = await getApiKey(req.user);
-    
-    if (!apiKey) {
-        return res.status(400).json({ error: 'Nenhuma API Key configurada. Configure sua chave pessoal ou peça ao admin.' });
-    }
-
-    const openai = new OpenAI({
-        baseURL: "https://openrouter.ai/api/v1",
-        apiKey,
-        defaultHeaders: {
-            "HTTP-Referer": "https://meu-super-ai.vercel.app",
-            "X-Title": "jgspAI"
-        }
-    });
-
     // Obtém system prompt global (com cache)
     const globalSystemPrompt = await getGlobalSystemPrompt();
     
-    // Monta mensagens com system prompt (global tem prioridade)
+    // Monta mensagens com system prompts
     const systemContent = [];
-    if (globalSystemPrompt) systemContent.push(globalSystemPrompt); // Prioridade máxima
+    if (globalSystemPrompt) systemContent.push(globalSystemPrompt);
     if (userSystemPrompt) systemContent.push(userSystemPrompt);
     if (req.user.bio) systemContent.push(`Informações sobre o usuário: ${req.user.bio}`);
     
     const msgs = systemContent.length > 0 
         ? [{ role: "system", content: systemContent.join('\n\n') }, ...messages]
         : [...messages];
-
+    
     try {
-        const resp = await openai.chat.completions.create({
-            model: model || "google/gemini-2.0-flash-exp:free",
-            messages: msgs
-        });
-
-        const msg = resp.choices[0].message;
-        res.json(msg);
-
-        // Incrementa uso e salva histórico em background
+        let msg;
+        let effectiveProvider = provider;
+        
+        // Determina API Key para OpenRouter
+        const apiKey = provider === 'openrouter' ? await getApiKey(req.user) : null;
+        
+        // Valida API Key para OpenRouter
+        if (provider === 'openrouter' && !apiKey) {
+            return res.status(400).json({ 
+                error: 'Nenhuma API Key configurada. Configure sua chave pessoal ou peça ao admin.' 
+            });
+        }
+        
+        // Roteamento baseado no provider
+        switch (provider) {
+            case 'openrouter':
+                msg = await callOpenRouter(model, msgs, apiKey);
+                effectiveProvider = 'openrouter';
+                break;
+                
+            case 'groq':
+                msg = await callGroq(model, msgs);
+                effectiveProvider = 'groq';
+                break;
+                
+            case 'g4f':
+            default:
+                // G4F usa o sistema de fallback automático
+                msg = await callG4FWithFallback(model, msgs);
+                effectiveProvider = msg._provider || 'g4f';
+                break;
+        }
+        
+        // Responde ao cliente
+        res.json({ role: msg.role, content: msg.content });
+        
+        // Background tasks
+        // Incrementa uso
         User.findByIdAndUpdate(req.user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
         
+        // Rastreia uso do modelo
+        trackModelUsage(model, effectiveProvider, req.user._id, req.user.username, true, msg._tokens || 0);
+        
+        // Salva no histórico do chat
         if (chatId) {
             Chat.findOne({ _id: chatId, userId: req.user._id }).then(async (chat) => {
                 if (chat) {
                     chat.messages.push(messages[messages.length - 1]);
-                    chat.messages.push(msg);
+                    chat.messages.push({ role: msg.role, content: msg.content });
                     chat.model = model;
                     chat.updatedAt = Date.now();
                     await chat.save();
                 }
             }).catch(err => console.error('Erro ao salvar histórico:', err));
         }
+        
     } catch (e) {
-        console.error('Erro na API:', e.message);
-        res.status(500).json({ error: e.message, details: e.response?.data });
+        console.error(`[Chat] Erro com ${provider}:`, e.message);
+        
+        // Rastreia erro do modelo
+        const errorProvider = model.includes('/') ? model.split('/')[0] : provider;
+        trackModelUsage(model, errorProvider, req.user._id, req.user.username, false, 0, e.message);
+        
+        return res.status(500).json({ error: e.message });
     }
 });
 
