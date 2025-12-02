@@ -2878,26 +2878,69 @@ app.get('/api/admin/groq/models', auth, adminOnly, async (req, res) => {
             return res.json(groqModelsCache.data);
         }
         
-        // Limites conhecidos da documentação do Groq (tier gratuito)
-        // https://console.groq.com/docs/rate-limits
+        // Limites conhecidos da documentação do Groq (tier gratuito - Free)
+        // Fonte: https://console.groq.com/docs/rate-limits (atualizado Dez 2024)
         const knownLimits = {
-            'llama-3.3-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
-            'llama-3.3-70b-specdec': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
-            'llama-3.1-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            // Llama 3.3 Models
+            'llama-3.3-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+            'llama-3.3-70b-specdec': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+            
+            // Llama 3.2 Models (Vision)
+            'llama-3.2-90b-vision-preview': { rpm: 15, rpd: 7000, tpm: 3000, tpd: 100000 },
+            'llama-3.2-11b-vision-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 250000 },
+            'llama-3.2-3b-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 250000 },
+            'llama-3.2-1b-preview': { rpm: 30, rpd: 14400, tpm: 7000, tpd: 250000 },
+            
+            // Llama 3.1 Models
+            'llama-3.1-70b-versatile': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
             'llama-3.1-8b-instant': { rpm: 30, rpd: 14400, tpm: 20000, tpd: 500000 },
-            'llama3-70b-8192': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'llama-3.1-70b-specdec': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+            
+            // Llama 3 Models (Legacy)
+            'llama3-70b-8192': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
             'llama3-8b-8192': { rpm: 30, rpd: 14400, tpm: 30000, tpd: 500000 },
-            'gemma2-9b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 250000 },
-            'gemma-7b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 250000 },
-            'mixtral-8x7b-32768': { rpm: 30, rpd: 14400, tpm: 5000, tpd: 100000 },
-            'llama-guard-3-8b': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 250000 },
-            'llama3-groq-70b-8192-tool-use-preview': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
-            'llama3-groq-8b-8192-tool-use-preview': { rpm: 30, rpd: 14400, tpm: 30000, tpd: 500000 },
-            'distil-whisper-large-v3-en': { rpm: 20, rpd: 2000, tpm: 0, tpd: 0 },
-            'whisper-large-v3': { rpm: 20, rpd: 2000, tpm: 0, tpd: 0 },
-            'whisper-large-v3-turbo': { rpm: 20, rpd: 2000, tpm: 0, tpd: 0 },
+            
+            // Llama Guard
+            'llama-guard-3-8b': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
+            
+            // Llama Tool Use
+            'llama3-groq-70b-8192-tool-use-preview': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+            'llama3-groq-8b-8192-tool-use-preview': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
+            
+            // Gemma Models
+            'gemma2-9b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
+            'gemma-7b-it': { rpm: 30, rpd: 14400, tpm: 15000, tpd: 500000 },
+            
+            // Mixtral Models
+            'mixtral-8x7b-32768': { rpm: 30, rpd: 14400, tpm: 5000, tpd: 500000 },
+            
+            // DeepSeek Models
+            'deepseek-r1-distill-llama-70b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'deepseek-r1-distill-qwen-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            
+            // Qwen Models
+            'qwen-2.5-72b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'qwen-2.5-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            'qwen-qwq-32b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 },
+            
+            // Whisper Models (Audio - diferentes limites)
+            'distil-whisper-large-v3-en': { rpm: 20, rpd: 2000, tpm: 0, tpd: 7200 }, // 2 hrs audio/day
+            'whisper-large-v3': { rpm: 20, rpd: 2000, tpm: 0, tpd: 7200 },
+            'whisper-large-v3-turbo': { rpm: 20, rpd: 2000, tpm: 0, tpd: 7200 },
+            
+            // Playai TTS (Text-to-Speech)
+            'playai-tts': { rpm: 20, rpd: 2000, tpm: 5000, tpd: 50000 },
+            'playai-tts-arabic': { rpm: 20, rpd: 2000, tpm: 5000, tpd: 50000 },
+            
+            // Allam Arabic
+            'allam-2-7b': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 },
+            
+            // Compound Beta (Agents)
+            'compound-beta': { rpm: 30, rpd: 200, tpm: 6000, tpd: 100000 },
+            'compound-beta-mini': { rpm: 30, rpd: 200, tpm: 6000, tpd: 100000 },
+            
             // Limites padrão para modelos não listados
-            '_default': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 100000 }
+            '_default': { rpm: 30, rpd: 14400, tpm: 6000, tpd: 200000 }
         };
         
         // Buscar modelos da API do Groq
@@ -2938,15 +2981,19 @@ app.get('/api/admin/groq/models', auth, adminOnly, async (req, res) => {
     } catch (e) {
         console.error('Erro ao buscar modelos Groq:', e.message);
         
-        // Fallback: retornar modelos conhecidos com limites
+        // Fallback: retornar modelos conhecidos com limites exatos
         const fallbackModels = [
-            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
-            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
+            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 200000 } },
+            { id: 'llama-3.2-90b-vision-preview', name: 'Llama 3.2 90B Vision', context_window: 8192, limits: { requestsPerMinute: 15, requestsPerDay: 7000, tokensPerMinute: 3000, tokensPerDay: 100000 } },
+            { id: 'llama-3.2-11b-vision-preview', name: 'Llama 3.2 11B Vision', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 7000, tokensPerDay: 250000 } },
+            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 200000 } },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', context_window: 128000, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 20000, tokensPerDay: 500000 } },
-            { id: 'llama3-70b-8192', name: 'Llama 3 70B', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
+            { id: 'llama3-70b-8192', name: 'Llama 3 70B', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 200000 } },
             { id: 'llama3-8b-8192', name: 'Llama 3 8B', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 30000, tokensPerDay: 500000 } },
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B IT', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 15000, tokensPerDay: 250000 } },
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', context_window: 32768, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 5000, tokensPerDay: 100000 } },
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B IT', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 15000, tokensPerDay: 500000 } },
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', context_window: 32768, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 5000, tokensPerDay: 500000 } },
+            { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 Distill Llama 70B', context_window: 8192, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
+            { id: 'qwen-2.5-72b', name: 'Qwen 2.5 72B', context_window: 32768, limits: { requestsPerMinute: 30, requestsPerDay: 14400, tokensPerMinute: 6000, tokensPerDay: 100000 } },
         ];
         res.json(fallbackModels);
     }
