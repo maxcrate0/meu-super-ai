@@ -65,6 +65,11 @@ export default function AdminDashboard() {
   const [modelsFilter, setModelsFilter] = useState('');
   const [providerFilter, setProviderFilter] = useState('all');
   
+  // Estados do teste de modelos
+  const [testingModels, setTestingModels] = useState(false);
+  const [testResults, setTestResults] = useState(null);
+  const [showTestResults, setShowTestResults] = useState(false);
+  
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -117,13 +122,15 @@ export default function AdminDashboard() {
   const loadModelsData = async () => {
     setLoadingModels(true);
     try {
-      const [statsRes, hiddenRes] = await Promise.all([
+      const [statsRes, hiddenRes, testRes] = await Promise.all([
         axios.get(API_URL + '/admin/models/stats?period=7d', { headers: { Authorization: 'Bearer ' + token } }),
-        axios.get(API_URL + '/admin/models/hidden', { headers: { Authorization: 'Bearer ' + token } })
+        axios.get(API_URL + '/admin/models/hidden', { headers: { Authorization: 'Bearer ' + token } }),
+        axios.get(API_URL + '/admin/models/test-results', { headers: { Authorization: 'Bearer ' + token } }).catch(() => ({ data: null }))
       ]);
       
       setAllModelsStats(statsRes.data || {});
       setHiddenModels(hiddenRes.data || []);
+      setTestResults(testRes.data);
     } catch (err) {
       console.error('Erro ao carregar dados de modelos:', err);
     }
@@ -161,6 +168,63 @@ export default function AdminDashboard() {
       setHiddenModels(prev => prev.filter(k => k !== modelKey));
     } catch (err) {
       alert('Erro ao reativar modelo: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // Iniciar teste de todos os modelos
+  const startModelTest = async () => {
+    if (testingModels) return;
+    
+    if (!confirm('Isso vai testar TODOS os modelos e pode demorar alguns minutos. Modelos que não funcionarem serão ocultados automaticamente. Continuar?')) {
+      return;
+    }
+    
+    setTestingModels(true);
+    try {
+      await axios.post(
+        API_URL + '/admin/models/test-all',
+        {},
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      
+      alert('Teste iniciado! Os resultados aparecerão em alguns minutos. Você pode verificar na aba "Teste de Modelos".');
+      
+      // Verificar resultados periodicamente
+      const checkResults = async () => {
+        try {
+          const res = await axios.get(API_URL + '/admin/models/test-results', {
+            headers: { Authorization: 'Bearer ' + token }
+          });
+          if (res.data && new Date(res.data.timestamp) > new Date(Date.now() - 60000)) {
+            setTestResults(res.data);
+            setTestingModels(false);
+            loadModelsData(); // Recarregar dados
+          } else {
+            // Continuar verificando
+            setTimeout(checkResults, 5000);
+          }
+        } catch (e) {
+          setTimeout(checkResults, 5000);
+        }
+      };
+      
+      setTimeout(checkResults, 10000); // Começar a verificar após 10s
+      
+    } catch (err) {
+      alert('Erro ao iniciar teste: ' + (err.response?.data?.error || err.message));
+      setTestingModels(false);
+    }
+  };
+
+  // Carregar resultados do último teste
+  const loadTestResults = async () => {
+    try {
+      const res = await axios.get(API_URL + '/admin/models/test-results', {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      setTestResults(res.data);
+    } catch (e) {
+      console.error('Erro ao carregar resultados do teste:', e);
     }
   };
 
@@ -1395,18 +1459,19 @@ export default function AdminDashboard() {
             </div>
             
             {/* Tabs */}
-            <div className="flex border-b border-gray-700">
+            <div className="flex border-b border-gray-700 overflow-x-auto">
               {[
                 { id: 'stats', label: 'Estatísticas', icon: BarChart3 },
                 { id: 'providers', label: 'Por Provedor', icon: Database },
-                { id: 'userRanking', label: 'Ranking Usuários', icon: Trophy },
-                { id: 'hidden', label: 'Modelos Ocultos', icon: EyeOff },
-                { id: 'errors', label: 'Erros Recentes', icon: AlertTriangle }
+                { id: 'userRanking', label: 'Ranking', icon: Trophy },
+                { id: 'hidden', label: 'Ocultos', icon: EyeOff },
+                { id: 'errors', label: 'Erros', icon: AlertTriangle },
+                { id: 'test', label: 'Testar Modelos', icon: Zap }
               ].map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setModelsActiveTab(tab.id)}
-                  className={`flex-1 p-3 flex items-center justify-center gap-2 transition text-sm ${
+                  className={`flex-1 p-3 flex items-center justify-center gap-2 transition text-sm whitespace-nowrap ${
                     modelsActiveTab === tab.id 
                       ? 'bg-purple-600 text-white' 
                       : 'hover:bg-gray-700 text-gray-400'
@@ -1772,6 +1837,170 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Tab: Teste de Modelos */}
+                  {modelsActiveTab === 'test' && (
+                    <div className="space-y-6">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">Teste de Modelos</h3>
+                          <p className="text-sm text-gray-500">
+                            Testa todos os modelos e oculta automaticamente os que não funcionam
+                          </p>
+                        </div>
+                        <button 
+                          onClick={startModelTest}
+                          disabled={testingModels}
+                          className={`px-6 py-3 rounded-lg flex items-center gap-2 transition font-medium ${
+                            testingModels 
+                              ? 'bg-gray-600 cursor-not-allowed' 
+                              : 'bg-green-600 hover:bg-green-500'
+                          }`}
+                        >
+                          {testingModels ? (
+                            <>
+                              <RefreshCw className="animate-spin" size={18}/>
+                              Testando...
+                            </>
+                          ) : (
+                            <>
+                              <Zap size={18}/>
+                              Iniciar Teste Geral
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      
+                      {testingModels && (
+                        <div className="bg-yellow-900/20 border border-yellow-600/30 p-4 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <RefreshCw className="animate-spin text-yellow-400" size={24}/>
+                            <div>
+                              <p className="font-medium text-yellow-300">Teste em andamento...</p>
+                              <p className="text-sm text-yellow-400/70">
+                                Isso pode levar alguns minutos. Os resultados aparecerão automaticamente.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {testResults && (
+                        <div className="space-y-4">
+                          {/* Resumo do teste */}
+                          <div className="bg-gray-900 p-4 rounded-lg border border-gray-600">
+                            <div className="flex items-center justify-between mb-4">
+                              <h4 className="font-semibold">Último Teste</h4>
+                              <span className="text-xs text-gray-500">
+                                {new Date(testResults.timestamp).toLocaleString('pt-BR')}
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="text-center">
+                                <p className="text-2xl font-bold text-blue-400">{testResults.totalTested}</p>
+                                <p className="text-xs text-gray-500">Testados</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-2xl font-bold text-green-400">{testResults.successful}</p>
+                                <p className="text-xs text-gray-500">Funcionando</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-2xl font-bold text-red-400">{testResults.failed}</p>
+                                <p className="text-xs text-gray-500">Falharam</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-2xl font-bold text-orange-400">{testResults.autoHidden}</p>
+                                <p className="text-xs text-gray-500">Auto-Ocultados</p>
+                              </div>
+                            </div>
+                            
+                            {/* Barra de progresso */}
+                            <div className="mt-4">
+                              <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden flex">
+                                <div 
+                                  className="bg-green-500 h-3"
+                                  style={{ width: `${(testResults.successful / testResults.totalTested) * 100}%` }}
+                                />
+                                <div 
+                                  className="bg-red-500 h-3"
+                                  style={{ width: `${(testResults.failed / testResults.totalTested) * 100}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>{((testResults.successful / testResults.totalTested) * 100).toFixed(1)}% OK</span>
+                                <span>{((testResults.failed / testResults.totalTested) * 100).toFixed(1)}% Falhas</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Lista de resultados */}
+                          <div>
+                            <h4 className="font-semibold mb-3">Resultados Detalhados</h4>
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                              {(testResults.results || []).map((result, index) => (
+                                <div 
+                                  key={index}
+                                  className={`p-3 rounded-lg border flex items-center justify-between ${
+                                    result.success 
+                                      ? 'bg-green-900/20 border-green-600/30' 
+                                      : result.hidden 
+                                        ? 'bg-red-900/30 border-red-600/50' 
+                                        : 'bg-yellow-900/20 border-yellow-600/30'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    {result.success ? (
+                                      <span className="text-green-400 text-xl">✓</span>
+                                    ) : result.hidden ? (
+                                      <span className="text-red-400 text-xl">✗</span>
+                                    ) : (
+                                      <span className="text-yellow-400 text-xl">⚠</span>
+                                    )}
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium">{result.modelId}</span>
+                                        <span className="text-xs bg-gray-700 px-2 py-0.5 rounded">
+                                          {result.provider}
+                                        </span>
+                                        {result.hidden && (
+                                          <span className="text-xs bg-red-600 px-2 py-0.5 rounded">
+                                            Ocultado
+                                          </span>
+                                        )}
+                                      </div>
+                                      {result.error && (
+                                        <p className="text-xs text-red-400 mt-1">
+                                          {result.error.substring(0, 80)}...
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className={`text-sm font-medium ${
+                                      result.success ? 'text-green-400' : 'text-red-400'
+                                    }`}>
+                                      {result.duration}ms
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {!testResults && !testingModels && (
+                        <div className="text-center py-12 text-gray-500">
+                          <Zap size={48} className="mx-auto mb-4 opacity-50"/>
+                          <p className="text-lg mb-2">Nenhum teste realizado ainda</p>
+                          <p className="text-sm">
+                            Clique em "Iniciar Teste Geral" para testar todos os modelos
+                          </p>
                         </div>
                       )}
                     </div>

@@ -3640,4 +3640,195 @@ app.get('/api/admin/models/all', auth, adminOnly, async (req, res) => {
     }
 });
 
+// Testar todos os modelos e ocultar os que não funcionam
+app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
+    // Envia resposta imediata e processa em background
+    res.json({ 
+        success: true, 
+        message: 'Teste iniciado. Os resultados serão salvos automaticamente.',
+        startedAt: new Date().toISOString()
+    });
+    
+    // Processa em background
+    (async () => {
+        try {
+            await connectDB();
+            const g4f = await loadG4F();
+            
+            // Buscar modelos ocultos atuais
+            let hiddenConfig = await GlobalConfig.findOne({ key: 'HIDDEN_MODELS' });
+            let hiddenModels = hiddenConfig?.value || [];
+            
+            // Buscar lista de modelos do cache
+            const models = g4fModelsCache.data || [];
+            
+            if (models.length === 0) {
+                console.log('[MODEL-TEST] Nenhum modelo no cache para testar');
+                return;
+            }
+            
+            console.log(`[MODEL-TEST] Iniciando teste de ${models.length} modelos...`);
+            
+            const testMessage = [{ role: 'user', content: 'Responda apenas "OK" para confirmar que está funcionando.' }];
+            const results = [];
+            const newHiddenModels = [...hiddenModels];
+            
+            // Testar modelos de texto/chat em paralelo (lotes de 5)
+            const chatModels = models.filter(m => m.type === 'chat' || m.type === 'moderation');
+            
+            for (let i = 0; i < chatModels.length; i += 5) {
+                const batch = chatModels.slice(i, i + 5);
+                
+                const batchResults = await Promise.all(batch.map(async (model) => {
+                    const modelKey = `${model.provider}:${model.id}`;
+                    const startTime = Date.now();
+                    
+                    try {
+                        let client;
+                        
+                        // Seleciona o client correto baseado no provider
+                        switch (model.provider) {
+                            case 'groq':
+                                const groqKey = await getGroqApiKey();
+                                if (!groqKey) throw new Error('Groq API Key não configurada');
+                                client = new g4f.Groq({ apiKey: groqKey });
+                                break;
+                            case 'deepinfra':
+                                client = new g4f.DeepInfra();
+                                break;
+                            case 'cloudflare':
+                                client = new g4f.Worker();
+                                break;
+                            case 'cerebras':
+                                if (!process.env.CEREBRAS_API_KEY) throw new Error('Cerebras API Key não configurada');
+                                client = new g4f.Cerebras({ apiKey: process.env.CEREBRAS_API_KEY });
+                                break;
+                            case 'pollinations-ai':
+                            default:
+                                client = new g4f.PollinationsAI();
+                                break;
+                        }
+                        
+                        const response = await Promise.race([
+                            client.chat.completions.create({
+                                model: model.id,
+                                messages: testMessage,
+                            }),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout após 30s')), 30000)
+                            )
+                        ]);
+                        
+                        const duration = Date.now() - startTime;
+                        
+                        // Verificar se a resposta é válida
+                        const hasContent = model.provider === 'cloudflare' 
+                            ? response?.response 
+                            : response?.choices?.[0]?.message?.content;
+                        
+                        if (hasContent) {
+                            console.log(`[MODEL-TEST] ✓ ${model.id} (${model.provider}) - OK em ${duration}ms`);
+                            return { model, success: true, duration, error: null };
+                        } else {
+                            throw new Error('Resposta vazia');
+                        }
+                        
+                    } catch (e) {
+                        const duration = Date.now() - startTime;
+                        const errorMsg = e.message || 'Erro desconhecido';
+                        console.log(`[MODEL-TEST] ✗ ${model.id} (${model.provider}) - FALHOU: ${errorMsg}`);
+                        
+                        // Verificar se é erro de modelo não existente (deve ocultar)
+                        const shouldHide = 
+                            errorMsg.includes('model not found') ||
+                            errorMsg.includes('model does not exist') ||
+                            errorMsg.includes('invalid model') ||
+                            errorMsg.includes('unknown model') ||
+                            errorMsg.includes('not supported') ||
+                            errorMsg.includes('does not support') ||
+                            errorMsg.includes('deprecated') ||
+                            errorMsg.includes('No model') ||
+                            errorMsg.includes('404');
+                        
+                        return { model, success: false, duration, error: errorMsg, shouldHide };
+                    }
+                }));
+                
+                results.push(...batchResults);
+                
+                // Pequena pausa entre lotes para não sobrecarregar
+                if (i + 5 < chatModels.length) {
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+            
+            // Processar resultados e ocultar modelos que falharam
+            let hiddenCount = 0;
+            for (const result of results) {
+                if (!result.success && result.shouldHide) {
+                    const modelKey = `${result.model.provider}:${result.model.id}`;
+                    if (!newHiddenModels.includes(modelKey)) {
+                        newHiddenModels.push(modelKey);
+                        hiddenCount++;
+                        console.log(`[MODEL-TEST] Ocultando modelo: ${modelKey}`);
+                    }
+                }
+            }
+            
+            // Salvar resultados do teste
+            await GlobalConfig.findOneAndUpdate(
+                { key: 'MODEL_TEST_RESULTS' },
+                { 
+                    key: 'MODEL_TEST_RESULTS', 
+                    value: {
+                        timestamp: new Date(),
+                        totalTested: results.length,
+                        successful: results.filter(r => r.success).length,
+                        failed: results.filter(r => !r.success).length,
+                        autoHidden: hiddenCount,
+                        results: results.map(r => ({
+                            modelId: r.model.id,
+                            provider: r.model.provider,
+                            success: r.success,
+                            duration: r.duration,
+                            error: r.error,
+                            hidden: r.shouldHide
+                        }))
+                    },
+                    updatedAt: new Date()
+                },
+                { upsert: true }
+            );
+            
+            // Atualizar lista de modelos ocultos
+            if (hiddenCount > 0) {
+                await GlobalConfig.findOneAndUpdate(
+                    { key: 'HIDDEN_MODELS' },
+                    { key: 'HIDDEN_MODELS', value: newHiddenModels, updatedAt: new Date() },
+                    { upsert: true }
+                );
+                
+                // Limpar cache
+                g4fModelsCache = { data: null, lastFetch: 0 };
+            }
+            
+            console.log(`[MODEL-TEST] Teste concluído: ${results.filter(r => r.success).length}/${results.length} funcionando, ${hiddenCount} modelos ocultados`);
+            
+        } catch (e) {
+            console.error('[MODEL-TEST] Erro durante teste:', e.message);
+        }
+    })();
+});
+
+// Buscar resultados do último teste de modelos
+app.get('/api/admin/models/test-results', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        const config = await GlobalConfig.findOne({ key: 'MODEL_TEST_RESULTS' });
+        res.json(config?.value || null);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
