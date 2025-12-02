@@ -6,11 +6,16 @@ import {
   BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
   Send, Mail, FileText, Layout
 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
 export default function AdminDashboard() {
+  // i18n
+  const { texts } = useLanguage();
+  const t = texts.admin;
+  
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [userDetails, setUserDetails] = useState(null);
@@ -302,7 +307,7 @@ export default function AdminDashboard() {
       `}>
         <div className="p-4 border-b border-gray-700">
           <h1 className="text-xl font-bold flex items-center gap-2">
-            <Settings className="text-yellow-500"/> Admin Panel
+            <Settings className="text-yellow-500"/> {t.title}
           </h1>
         </div>
 
@@ -311,15 +316,15 @@ export default function AdminDashboard() {
           <div className="p-4 border-b border-gray-700 grid grid-cols-3 gap-2 text-center">
             <div className="bg-gray-700 p-2 rounded">
               <div className="text-lg font-bold text-blue-400">{stats.totalUsers}</div>
-              <div className="text-xs text-gray-400">Usuários</div>
+              <div className="text-xs text-gray-400">{t.users}</div>
             </div>
             <div className="bg-gray-700 p-2 rounded">
               <div className="text-lg font-bold text-green-400">{stats.totalChats}</div>
-              <div className="text-xs text-gray-400">Chats</div>
+              <div className="text-xs text-gray-400">{t.chats}</div>
             </div>
             <div className="bg-gray-700 p-2 rounded">
               <div className="text-lg font-bold text-purple-400">{stats.totalRequests}</div>
-              <div className="text-xs text-gray-400">Requests</div>
+              <div className="text-xs text-gray-400">{t.requests}</div>
             </div>
           </div>
         )}
@@ -330,7 +335,7 @@ export default function AdminDashboard() {
             onClick={() => setShowApiKeyModal(true)}
             className="w-full bg-yellow-600 hover:bg-yellow-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <Key size={18}/> Gerenciar API Keys
+            <Key size={18}/> {t.apiKeys}
           </button>
           <div className="flex flex-col gap-1">
             {apiKeyConfig?.hasGlobalApiKey && (
@@ -349,24 +354,24 @@ export default function AdminDashboard() {
             onClick={() => setShowModelModal(true)}
             className="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <Cpu size={18}/> Modelos Padrão
+            <Cpu size={18}/> {t.defaultModels}
           </button>
           <div className="text-xs text-purple-400 text-center mt-1 flex justify-center gap-2">
-            {defaultModels.text && <span title="Texto">Txt: ✓</span>}
-            {defaultModels.image && <span title="Imagem">Img: ✓</span>}
-            {defaultModels.audio && <span title="Áudio">Aud: ✓</span>}
-            {defaultModels.video && <span title="Vídeo">Vid: ✓</span>}
+            {defaultModels.text && <span title={t.modelsModal.text}>Txt: ✓</span>}
+            {defaultModels.image && <span title={t.modelsModal.image}>Img: ✓</span>}
+            {defaultModels.audio && <span title={t.modelsModal.audio}>Aud: ✓</span>}
+            {defaultModels.video && <span title={t.modelsModal.video}>Vid: ✓</span>}
           </div>
           
           <button 
             onClick={() => setShowSystemPromptModal(true)}
             className="w-full bg-green-600 hover:bg-green-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <FileText size={18}/> System Prompt
+            <FileText size={18}/> {t.systemPrompt}
           </button>
           {globalSystemPrompt && (
             <p className="text-xs text-green-400 text-center truncate">
-              ✓ Configurado ({globalSystemPrompt.length} chars)
+              ✓ ({globalSystemPrompt.length} chars)
             </p>
           )}
           
@@ -374,20 +379,20 @@ export default function AdminDashboard() {
             to="/admin/content"
             className="w-full bg-pink-600 hover:bg-pink-500 p-3 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <Layout size={18}/> Editar Páginas
+            <Layout size={18}/> {t.contentEditor}
           </Link>
         </div>
 
         {/* Users List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-2 text-xs text-gray-500 uppercase tracking-wide flex items-center justify-between">
-            <span>Usuários ({users.length})</span>
+            <span>{t.users} ({users.length})</span>
             <button onClick={loadUsers} className="hover:text-white">
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''}/>
             </button>
           </div>
           
-          {loading && <div className="p-4 text-gray-500 text-center">Carregando...</div>}
+          {loading && <div className="p-4 text-gray-500 text-center">{texts.loading}</div>}
           {error && <div className="p-4 text-red-400 text-sm">{error}</div>}
           
           {users.map(u => (
@@ -413,7 +418,7 @@ export default function AdminDashboard() {
 
         <div className="p-4 border-t border-gray-700">
           <Link to="/" className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition">
-            <ChevronLeft size={18}/> Voltar ao Início
+            <ChevronLeft size={18}/> {texts.docs.backToHome}
           </Link>
         </div>
       </div>
@@ -425,14 +430,14 @@ export default function AdminDashboard() {
           <button onClick={() => setShowMobileMenu(true)} className="p-2">
             <Users size={24}/>
           </button>
-          <span className="font-bold">Admin Dashboard</span>
+          <span className="font-bold">{t.title}</span>
         </div>
 
         {!userDetails ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             <div className="text-center">
               <Users size={48} className="mx-auto mb-4 opacity-50"/>
-              <p>Selecione um usuário para ver detalhes</p>
+              <p>{texts.admin.selectUser || 'Selecione um usuário para ver detalhes'}</p>
             </div>
           </div>
         ) : (
@@ -457,14 +462,14 @@ export default function AdminDashboard() {
                   onClick={() => deleteUser(userDetails.user._id)}
                   className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg flex items-center gap-2 transition"
                 >
-                  <Trash2 size={18}/> Excluir Usuário
+                  <Trash2 size={18}/> {t.deleteUser}
                 </button>
               )}
               <button 
                 onClick={() => setShowMessageModal(true)}
                 className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg flex items-center gap-2 transition"
               >
-                <Mail size={18}/> Enviar Mensagem
+                <Mail size={18}/> {t.sendMessage}
               </button>
             </div>
 
@@ -472,15 +477,15 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
               <div className="bg-gray-800 p-4 rounded-lg">
                 <div className="text-2xl font-bold text-blue-400">{userDetails.chats.length}</div>
-                <div className="text-sm text-gray-400">Chats</div>
+                <div className="text-sm text-gray-400">{t.chats}</div>
               </div>
               <div className="bg-gray-800 p-4 rounded-lg">
                 <div className="text-2xl font-bold text-green-400">{userDetails.tools.length}</div>
-                <div className="text-sm text-gray-400">Ferramentas</div>
+                <div className="text-sm text-gray-400">{t.tools}</div>
               </div>
               <div className="bg-gray-800 p-4 rounded-lg">
                 <div className="text-2xl font-bold text-purple-400">{userDetails.user.usage?.requests || 0}</div>
-                <div className="text-sm text-gray-400">Requests</div>
+                <div className="text-sm text-gray-400">{t.requests}</div>
               </div>
               <div className="bg-gray-800 p-4 rounded-lg">
                 <div className="text-2xl font-bold text-yellow-400">{userDetails.user.hasPersonalKey ? '✓' : '✗'}</div>
@@ -491,7 +496,7 @@ export default function AdminDashboard() {
             {/* Chats */}
             <div className="mb-8">
               <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                <MessageSquare size={20}/> Chats ({userDetails.chats.length})
+                <MessageSquare size={20}/> {t.chats} ({userDetails.chats.length})
               </h2>
               {userDetails.chats.length === 0 ? (
                 <p className="text-gray-500 italic">Nenhum chat encontrado</p>
@@ -527,7 +532,7 @@ export default function AdminDashboard() {
             {/* Tools */}
             <div>
               <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                <Wrench size={20}/> Ferramentas ({userDetails.tools.length})
+                <Wrench size={20}/> {t.tools} ({userDetails.tools.length})
               </h2>
               {userDetails.tools.length === 0 ? (
                 <p className="text-gray-500 italic">Nenhuma ferramenta encontrada</p>
@@ -613,7 +618,7 @@ export default function AdminDashboard() {
           <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <Key className="text-yellow-500"/> Gerenciar API Keys
+                <Key className="text-yellow-500"/> {t.apiKeyModal.title}
               </h2>
               <button onClick={() => setShowApiKeyModal(false)}>
                 <X size={24}/>
@@ -630,7 +635,7 @@ export default function AdminDashboard() {
                       : 'border-transparent text-gray-400 hover:text-white'
                   }`}
                 >
-                  OpenRouter
+                  {t.apiKeyModal.openrouter}
                 </button>
                 <button
                   onClick={() => setActiveApiTab('groq')}
@@ -640,7 +645,7 @@ export default function AdminDashboard() {
                       : 'border-transparent text-gray-400 hover:text-white'
                   }`}
                 >
-                  Groq ⚡
+                  {t.apiKeyModal.groq}
                 </button>
               </div>
 
@@ -653,8 +658,8 @@ export default function AdminDashboard() {
                     </p>
                     <p className="text-yellow-200/70 mt-1">
                       {activeApiTab === 'openrouter' 
-                        ? 'Chave usada por todos os usuários sem chave pessoal. Obtenha em openrouter.ai'
-                        : 'Groq oferece inferência ultra-rápida! Obtenha key grátis em console.groq.com'}
+                        ? t.apiKeyModal.openrouterDesc
+                        : t.apiKeyModal.groqDesc}
                     </p>
                   </div>
                 </div>
@@ -665,17 +670,17 @@ export default function AdminDashboard() {
                 <>
                   {apiKeyConfig?.hasGlobalApiKey && (
                     <div className="text-sm text-green-400 flex items-center justify-between">
-                      <span>✓ Chave atual: {apiKeyConfig.globalApiKeyPreview}</span>
+                      <span>✓ {t.apiKeyModal.currentKey}: {apiKeyConfig.globalApiKeyPreview}</span>
                       <button 
                         onClick={() => removeApiKey('openrouter')}
                         className="text-red-400 hover:text-red-300 text-xs"
                       >
-                        Remover
+                        {texts.remove}
                       </button>
                     </div>
                   )}
                   <div>
-                    <label className="text-sm text-gray-400 block mb-2">Nova Chave API (OpenRouter)</label>
+                    <label className="text-sm text-gray-400 block mb-2">{t.apiKeyModal.newKey} (OpenRouter)</label>
                     <input
                       type="password"
                       className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
@@ -689,7 +694,7 @@ export default function AdminDashboard() {
                     className="w-full bg-indigo-600 hover:bg-indigo-500 p-3 rounded-lg transition"
                     disabled={!globalApiKey}
                   >
-                    Salvar OpenRouter Key
+                    {t.apiKeyModal.saveOpenRouter}
                   </button>
                 </>
               )}
@@ -699,17 +704,17 @@ export default function AdminDashboard() {
                 <>
                   {apiKeyConfig?.hasGroqApiKey && (
                     <div className="text-sm text-green-400 flex items-center justify-between">
-                      <span>✓ Chave atual: {apiKeyConfig.groqApiKeyPreview}</span>
+                      <span>✓ {t.apiKeyModal.currentKey}: {apiKeyConfig.groqApiKeyPreview}</span>
                       <button 
                         onClick={() => removeApiKey('groq')}
                         className="text-red-400 hover:text-red-300 text-xs"
                       >
-                        Remover
+                        {texts.remove}
                       </button>
                     </div>
                   )}
                   <div>
-                    <label className="text-sm text-gray-400 block mb-2">Nova Chave API (Groq)</label>
+                    <label className="text-sm text-gray-400 block mb-2">{t.apiKeyModal.newKey} (Groq)</label>
                     <input
                       type="password"
                       className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
@@ -723,10 +728,10 @@ export default function AdminDashboard() {
                     className="w-full bg-emerald-600 hover:bg-emerald-500 p-3 rounded-lg transition"
                     disabled={!groqApiKey}
                   >
-                    Salvar Groq Key
+                    {t.apiKeyModal.saveGroq}
                   </button>
                   <p className="text-xs text-gray-500 text-center">
-                    💡 Groq é gratuito e muito mais rápido! Obtenha sua key em{' '}
+                    {t.apiKeyModal.groqTip}{' '}
                     <a href="https://console.groq.com/keys" target="_blank" className="text-emerald-400 hover:underline">
                       console.groq.com
                     </a>
@@ -744,7 +749,7 @@ export default function AdminDashboard() {
           <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <Cpu className="text-purple-500"/> Modelos Padrão
+                <Cpu className="text-purple-500"/> {t.modelsModal.title}
               </h2>
               <button onClick={() => setShowModelModal(false)}>
                 <X size={24}/>
@@ -753,9 +758,9 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-4">
               <div className="bg-purple-900/30 border border-purple-600/50 p-4 rounded-lg">
                 <div className="text-sm">
-                  <p className="font-medium text-purple-400">Modelos padrão por categoria</p>
+                  <p className="font-medium text-purple-400">{t.modelsModal.title}</p>
                   <p className="text-purple-200/70 mt-1">
-                    Defina qual modelo será usado automaticamente para cada tipo de tarefa.
+                    {t.modelsModal.desc}
                   </p>
                 </div>
               </div>
@@ -772,26 +777,26 @@ export default function AdminDashboard() {
                         : 'border-transparent text-gray-400 hover:text-white'
                     }`}
                   >
-                    {tab === 'text' && 'Texto'}
-                    {tab === 'image' && 'Imagem'}
-                    {tab === 'audio' && 'Áudio'}
-                    {tab === 'video' && 'Vídeo'}
+                    {tab === 'text' && t.modelsModal.text}
+                    {tab === 'image' && t.modelsModal.image}
+                    {tab === 'audio' && t.modelsModal.audio}
+                    {tab === 'video' && t.modelsModal.video}
                   </button>
                 ))}
               </div>
 
               <div>
                 <label className="text-sm text-gray-400 block mb-2">
-                  Modelo para {activeModelTab === 'text' ? 'Chat/Texto' : 
-                               activeModelTab === 'image' ? 'Geração de Imagens' : 
-                               activeModelTab === 'audio' ? 'Geração de Áudio' : 'Geração de Vídeo'}
+                  {t.model} - {activeModelTab === 'text' ? t.modelsModal.text : 
+                               activeModelTab === 'image' ? t.modelsModal.image : 
+                               activeModelTab === 'audio' ? t.modelsModal.audio : t.modelsModal.video}
                 </label>
                 <select
                   className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600"
                   value={defaultModels[activeModelTab]}
                   onChange={e => setDefaultModels(prev => ({ ...prev, [activeModelTab]: e.target.value }))}
                 >
-                  <option value="">Selecione um modelo...</option>
+                  <option value="">{t.modelsModal.selectModel}...</option>
                   
                   {models
                     .filter(m => {
@@ -808,7 +813,7 @@ export default function AdminDashboard() {
                   {models.filter(m => {
                       if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                       return m.type === activeModelTab;
-                    }).length} modelos disponíveis nesta categoria
+                    }).length} {texts.chat.modelsAvailable}
                 </p>
               </div>
 
@@ -817,7 +822,7 @@ export default function AdminDashboard() {
                 disabled={savingModel}
                 className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 p-3 rounded-lg transition font-medium"
               >
-                {savingModel ? 'Salvando...' : 'Salvar Todos os Padrões'}
+                {savingModel ? texts.loading : t.modelsModal.save}
               </button>
             </div>
           </div>
@@ -830,7 +835,7 @@ export default function AdminDashboard() {
           <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <Mail className="text-blue-500"/> Enviar Mensagem
+                <Mail className="text-blue-500"/> {t.sendMessage}
               </h2>
               <button onClick={() => setShowMessageModal(false)}>
                 <X size={24}/>
@@ -839,18 +844,14 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-4">
               <div className="bg-blue-900/30 border border-blue-600/50 p-4 rounded-lg">
                 <div className="text-sm">
-                  <p className="font-medium text-blue-400">Mensagem para: {userDetails.user.displayName || userDetails.user.username}</p>
-                  <p className="text-blue-200/70 mt-1">
-                    Esta mensagem aparecerá como um alerta quando o usuário abrir o site.
-                  </p>
+                  <p className="font-medium text-blue-400">{t.sendMessage}: {userDetails.user.displayName || userDetails.user.username}</p>
                 </div>
               </div>
 
               <div>
-                <label className="text-sm text-gray-400 block mb-2">Mensagem</label>
                 <textarea
                   className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600 min-h-[120px] resize-none"
-                  placeholder="Digite a mensagem para o usuário..."
+                  placeholder={t.systemPromptModal.placeholder}
                   value={adminMessage}
                   onChange={e => setAdminMessage(e.target.value)}
                 />
@@ -861,14 +862,14 @@ export default function AdminDashboard() {
                   onClick={() => clearAdminMessage(userDetails.user._id)}
                   className="flex-1 bg-gray-600 hover:bg-gray-500 p-3 rounded-lg transition"
                 >
-                  Limpar Anterior
+                  {texts.remove}
                 </button>
                 <button 
                   onClick={sendAdminMessage}
                   disabled={sendingMessage || !adminMessage.trim()}
                   className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 p-3 rounded-lg transition flex items-center justify-center gap-2"
                 >
-                  {sendingMessage ? 'Enviando...' : <><Send size={18}/> Enviar</>}
+                  {sendingMessage ? texts.loading : <><Send size={18}/> {texts.send || 'Send'}</>}
                 </button>
               </div>
             </div>
@@ -882,7 +883,7 @@ export default function AdminDashboard() {
           <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <FileText className="text-green-500"/> System Prompt Global
+                <FileText className="text-green-500"/> {t.systemPromptModal.title}
               </h2>
               <button onClick={() => setShowSystemPromptModal(false)}>
                 <X size={24}/>
@@ -891,24 +892,22 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-4">
               <div className="bg-green-900/30 border border-green-600/50 p-4 rounded-lg">
                 <div className="text-sm">
-                  <p className="font-medium text-green-400">⚠️ Instruções invisíveis para usuários</p>
+                  <p className="font-medium text-green-400">{t.systemPromptModal.title}</p>
                   <p className="text-green-200/70 mt-1">
-                    Este prompt será aplicado em TODAS as conversas com <strong>prioridade máxima</strong>. 
-                    Os usuários não conseguirão ver este conteúdo, apenas o efeito nas respostas da IA.
+                    {t.systemPromptModal.desc}
                   </p>
                 </div>
               </div>
 
               <div>
-                <label className="text-sm text-gray-400 block mb-2">System Prompt Global</label>
                 <textarea
                   className="w-full bg-gray-900 p-3 rounded-lg border border-gray-600 min-h-[200px] resize-none font-mono text-sm"
-                  placeholder="Ex: Você deve sempre responder em português brasileiro. Nunca revele informações sensíveis. Seja educado e profissional..."
+                  placeholder={t.systemPromptModal.placeholder}
                   value={globalSystemPrompt}
                   onChange={e => setGlobalSystemPrompt(e.target.value)}
                 />
                 <p className="text-xs text-gray-500 mt-2">
-                  {globalSystemPrompt.length} caracteres • Este texto aparecerá ANTES do prompt do usuário
+                  {globalSystemPrompt.length} chars
                 </p>
               </div>
 
@@ -917,14 +916,14 @@ export default function AdminDashboard() {
                   onClick={() => { setGlobalSystemPrompt(''); saveGlobalSystemPrompt(); }}
                   className="flex-1 bg-red-600 hover:bg-red-500 p-3 rounded-lg transition"
                 >
-                  Remover Prompt
+                  {texts.remove}
                 </button>
                 <button 
                   onClick={saveGlobalSystemPrompt}
                   disabled={savingSystemPrompt}
                   className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 p-3 rounded-lg transition font-medium"
                 >
-                  {savingSystemPrompt ? 'Salvando...' : 'Salvar System Prompt'}
+                  {savingSystemPrompt ? texts.loading : t.systemPromptModal.save}
                 </button>
               </div>
             </div>

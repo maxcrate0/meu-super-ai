@@ -8,6 +8,7 @@ import {
   Paperclip, Image, File, Wrench, Code, Terminal, Globe, ChevronDown,
   Search, Database, Layers
 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
@@ -15,6 +16,11 @@ const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 axios.defaults.timeout = 120000;
 
 export default function ChatInterface({ user, setUser }) {
+  // i18n
+  const { texts } = useLanguage();
+  const t = texts.chat;
+  const tUser = texts.userSettings;
+  
   // Estados principais
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -167,7 +173,7 @@ export default function ChatInterface({ user, setUser }) {
   };
 
   const deleteTool = async (toolId) => {
-    if (!confirm('Tem certeza que deseja deletar esta ferramenta?')) return;
+    if (!confirm(t.confirmDeleteTool)) return;
     try {
       await axios.delete(API_URL + '/tools/' + toolId, {
         headers: { Authorization: 'Bearer ' + token }
@@ -272,7 +278,7 @@ export default function ChatInterface({ user, setUser }) {
 
   const deleteChat = async (e, id) => {
     e.stopPropagation();
-    if (!confirm("Apagar este chat?")) return;
+    if (!confirm(t.deleteChat)) return;
     await axios.delete(API_URL + '/chats/' + id, { 
       headers: { Authorization: 'Bearer ' + token } 
     });
@@ -395,9 +401,9 @@ export default function ChatInterface({ user, setUser }) {
       loadUserTools(); // Recarrega ferramentas caso alguma tenha sido criada
     } catch(err) {
       let errorMsg = err.code === 'ECONNABORTED' 
-        ? "Timeout - A IA demorou muito para responder."
+        ? t.timeout
         : err.response?.data?.error || err.message;
-      setMessages([...newMsgs, { role: 'assistant', content: `❌ ERRO: ${errorMsg}` }]);
+      setMessages([...newMsgs, { role: 'assistant', content: `❌ ${t.error}: ${errorMsg}` }]);
     }
     setLoading(false);
   };
@@ -428,9 +434,9 @@ export default function ChatInterface({ user, setUser }) {
                 <User size={20} className="text-white"/>
               </div>
               <div>
-                <h2 className="font-bold text-lg">Mensagem do Administrador</h2>
+                <h2 className="font-bold text-lg">{t.adminMessage}</h2>
                 <p className={`text-xs ${textMuted}`}>
-                  {adminNotification.sentAt && new Date(adminNotification.sentAt).toLocaleString('pt-BR')}
+                  {adminNotification.sentAt && new Date(adminNotification.sentAt).toLocaleString()}
                 </p>
               </div>
             </div>
@@ -444,7 +450,7 @@ export default function ChatInterface({ user, setUser }) {
                 onClick={dismissAdminMessage}
                 className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg transition font-medium"
               >
-                Entendi
+                {t.understood}
               </button>
             </div>
           </div>
@@ -464,22 +470,22 @@ export default function ChatInterface({ user, setUser }) {
       `}>
         <div className={`p-4 ${borderColor} border-b`}>
           <button onClick={createNewChat} className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg flex items-center justify-center gap-2 transition font-medium">
-            <Plus size={18}/> Novo Chat
+            <Plus size={18}/> {t.newChat}
           </button>
           <button 
             onClick={() => { setSwarmEnabled(!swarmEnabled); setShowSidebar(false); }}
             className={`mt-2 w-full p-3 rounded-lg flex items-center justify-center gap-2 transition font-medium ${
               swarmEnabled ? 'bg-purple-600 hover:bg-purple-500' : (isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300')
             }`}
-            title={swarmEnabled ? "Swarm ativo: A IA pode delegar tarefas para agentes paralelos" : "Swarm desativado"}
+            title={swarmEnabled ? t.swarmDesc : ""}
           >
-            <Zap size={18}/> Swarm {swarmEnabled ? 'ON' : 'OFF'}
+            <Zap size={18}/> {swarmEnabled ? t.swarmOn : t.swarmOff}
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
-          <div className={`text-xs ${textMuted} mb-2 px-2 uppercase tracking-wide`}>Histórico</div>
-          {chats.length === 0 && <div className={`text-sm ${textMuted} px-2`}>Nenhum chat ainda</div>}
+          <div className={`text-xs ${textMuted} mb-2 px-2 uppercase tracking-wide`}>{t.history}</div>
+          {chats.length === 0 && <div className={`text-sm ${textMuted} px-2`}>{t.noChats}</div>}
           {chats.map(chat => (
             <div 
               key={chat._id} 
@@ -526,7 +532,7 @@ export default function ChatInterface({ user, setUser }) {
         <div className={`p-4 ${borderColor} border-t space-y-2`}>
           {user?.role === 'admin' && (
             <a href="/admin" className="flex items-center gap-2 text-yellow-500 hover:text-yellow-400 transition">
-              <Settings size={18}/> Painel Admin
+              <Settings size={18}/> {t.adminPanel}
             </a>
           )}
           
@@ -541,17 +547,17 @@ export default function ChatInterface({ user, setUser }) {
                 src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" 
                 name="submit" 
                 title="PayPal - The safer, easier way to pay online!" 
-                alt="Donate with PayPal button"
+                alt={t.donate}
                 className="cursor-pointer hover:opacity-80 transition"
               />
             </form>
           </div>
           
           <button onClick={() => setShowSettings(true)} className={`flex items-center gap-2 ${textMuted} hover:${textMain} transition w-full`}>
-            <User size={18}/> Configurações
+            <User size={18}/> {t.accountSettings}
           </button>
           <button onClick={handleLogout} className="flex items-center gap-2 text-red-400 hover:text-red-300 transition w-full">
-            <LogOut size={18}/> Sair
+            <LogOut size={18}/> {texts.logout}
           </button>
         </div>
       </div>
@@ -587,15 +593,15 @@ export default function ChatInterface({ user, setUser }) {
             {swarmEnabled && (
               <span className="text-purple-400 font-bold flex items-center gap-1" title={
                 selectedProvider === 'g4f' 
-                  ? "Swarm ativo: Algumas ferramentas podem funcionar no G4F (depende do provedor)" 
-                  : "A IA pode usar agentes paralelos para tarefas complexas"
+                  ? t.swarmDescG4f 
+                  : t.swarmDesc
               }>
-                <Zap size={14}/> SWARM
+                <Zap size={14}/> {t.swarmActive}
               </span>
             )}
           </div>
           <button onClick={() => setShowChatConfig(true)} className={`flex items-center gap-2 ${textMuted} hover:text-indigo-400 transition`}>
-            <Settings size={16}/> Config Chat
+            <Settings size={16}/> {t.configChat}
           </button>
         </div>
 
@@ -603,17 +609,17 @@ export default function ChatInterface({ user, setUser }) {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 && (
             <div className={`text-center ${textMuted} mt-20`}>
-              <h2 className="text-3xl font-bold mb-2">💬 Novo Chat</h2>
-              <p className="text-sm mb-4">Envie uma mensagem para começar</p>
+              <h2 className="text-3xl font-bold mb-2">{t.newChatWelcome}</h2>
+              <p className="text-sm mb-4">{t.newChatHint}</p>
               {swarmEnabled && (
                 <div className={`${bgCard} p-4 rounded-xl max-w-lg mx-auto text-left ${borderColor} border`}>
                   <div className="flex items-center gap-2 mb-2 text-purple-400">
-                    <Zap size={18}/> <span className="font-bold">Modo Swarm Ativo</span>
+                    <Zap size={18}/> <span className="font-bold">{t.modeSwarmActive}</span>
                   </div>
                   <p className="text-xs opacity-80">
                     {selectedProvider === 'g4f' 
-                      ? "A IA pode tentar usar ferramentas avançadas no G4F. Nem todas as ferramentas funcionam em todos os provedores gratuitos."
-                      : "A IA pode delegar tarefas para agentes paralelos em paralelo, economizando contexto e aumentando eficiência. Ideal para tarefas complexas!"
+                      ? t.swarmDescG4f
+                      : t.swarmDesc
                     }
                   </p>
                 </div>
@@ -630,10 +636,10 @@ export default function ChatInterface({ user, setUser }) {
               }`}
             >
               <div className="flex items-center gap-2 text-xs opacity-60 uppercase font-bold mb-2">
-                <span>{m.role === 'user' ? (displayName || user?.username || 'Você') : 'Assistente'}</span>
+                <span>{m.role === 'user' ? (displayName || user?.username || t.you) : t.assistant}</span>
                 {m.swarm_used && (
                   <span className="text-purple-400 normal-case flex items-center gap-1">
-                    <Zap size={12}/> Swarm ({m.swarm_iterations}x)
+                    <Zap size={12}/> {t.swarmIterations} ({m.swarm_iterations}x)
                   </span>
                 )}
               </div>
@@ -647,7 +653,7 @@ export default function ChatInterface({ user, setUser }) {
           {loading && (
             <div className="flex items-center justify-center gap-2 text-blue-400">
               <Loader2 className="animate-spin" size={20}/>
-              <span>{swarmEnabled ? 'Processando (pode usar agentes paralelos)...' : 'Processando...'}</span>
+              <span>{swarmEnabled ? t.thinkingSwarm : t.thinking}</span>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -705,7 +711,7 @@ export default function ChatInterface({ user, setUser }) {
             
             <input
               className={`flex-1 ${bgInput} p-4 rounded-xl ${borderColor} border outline-none focus:border-blue-500 transition`}
-              placeholder="Digite sua mensagem..."
+              placeholder={t.placeholder}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
@@ -717,7 +723,7 @@ export default function ChatInterface({ user, setUser }) {
               className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 rounded-xl font-medium transition flex items-center gap-2"
             >
               <Send size={18}/>
-              <span className="hidden sm:inline">Enviar</span>
+              <span className="hidden sm:inline">{t.send}</span>
             </button>
           </div>
         </div>
@@ -729,7 +735,7 @@ export default function ChatInterface({ user, setUser }) {
           <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
             <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
               <h2 className="font-bold text-lg flex items-center gap-2">
-                <Wrench className="text-purple-400"/> Minhas Ferramentas ({userTools.length})
+                <Wrench className="text-purple-400"/> {t.myTools} ({userTools.length})
               </h2>
               <button onClick={() => setShowToolsPanel(false)} className={textMuted}>
                 <X size={24}/>
@@ -739,9 +745,9 @@ export default function ChatInterface({ user, setUser }) {
               {userTools.length === 0 ? (
                 <div className={`text-center ${textMuted} py-8`}>
                   <Wrench size={48} className="mx-auto mb-4 opacity-50"/>
-                  <p>Nenhuma ferramenta criada ainda</p>
-                  <p className="text-sm mt-2">Peça para a IA criar uma ferramenta para você!</p>
-                  <p className="text-xs mt-4 opacity-70">Exemplo: "Crie uma ferramenta que calcula o IMC"</p>
+                  <p>{t.noTools}</p>
+                  <p className="text-sm mt-2">{t.noToolsHint}</p>
+                  <p className="text-xs mt-4 opacity-70">{t.noToolsExample}</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -760,16 +766,16 @@ export default function ChatInterface({ user, setUser }) {
                         </button>
                       </div>
                       <div className="flex items-center gap-4 text-xs mt-3">
-                        <span className={textMuted}>Usos: {tool.executionCount || 0}</span>
+                        <span className={textMuted}>{t.toolUsage}: {tool.executionCount || 0}</span>
                         {tool.lastExecuted && (
                           <span className={textMuted}>
-                            Último uso: {new Date(tool.lastExecuted).toLocaleDateString('pt-BR')}
+                            {t.toolLastUsed}: {new Date(tool.lastExecuted).toLocaleDateString()}
                           </span>
                         )}
                       </div>
                       <details className="mt-3">
                         <summary className={`text-xs ${textMuted} cursor-pointer hover:text-blue-400`}>
-                          Ver código
+                          {t.viewCode}
                         </summary>
                         <pre className={`mt-2 ${bgCard} p-3 rounded-lg text-xs overflow-auto max-h-32 text-green-400`}>
                           {tool.code}
@@ -789,7 +795,7 @@ export default function ChatInterface({ user, setUser }) {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowChatConfig(false)}>
           <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
             <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
-              <h2 className="font-bold text-lg">Configurações do Chat</h2>
+              <h2 className="font-bold text-lg">{t.settings}</h2>
               <button onClick={() => setShowChatConfig(false)} className={textMuted}>
                 <X size={24}/>
               </button>
@@ -807,10 +813,10 @@ export default function ChatInterface({ user, setUser }) {
                         : 'border-transparent ' + textMuted + ' hover:' + textMain
                     }`}
                   >
-                    {tab === 'text' && 'Texto'}
-                    {tab === 'image' && 'Imagem'}
-                    {tab === 'audio' && 'Áudio'}
-                    {tab === 'video' && 'Vídeo'}
+                    {tab === 'text' && texts.admin.modelsModal.text}
+                    {tab === 'image' && texts.admin.modelsModal.image}
+                    {tab === 'audio' && texts.admin.modelsModal.audio}
+                    {tab === 'video' && texts.admin.modelsModal.video}
                   </button>
                 ))}
               </div>
@@ -818,7 +824,7 @@ export default function ChatInterface({ user, setUser }) {
               {/* Seletor de Provider */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
-                  <Layers size={16}/> Provedor de IA
+                  <Layers size={16}/> {t.providerAI}
                 </label>
                 <div className="flex gap-2">
                   <button 
@@ -847,15 +853,15 @@ export default function ChatInterface({ user, setUser }) {
               {/* Seletor de Modelo com Pesquisa */}
               <div>
                 <label className={`text-sm ${textMuted} block mb-2`}>
-                  Modelo para {activeModelTab === 'text' ? 'Chat/Texto' : 
-                               activeModelTab === 'image' ? 'Geração de Imagens' : 
-                               activeModelTab === 'audio' ? 'Geração de Áudio' : 'Geração de Vídeo'}
+                  {t.model} - {activeModelTab === 'text' ? t.textModel : 
+                               activeModelTab === 'image' ? t.imageModel : 
+                               activeModelTab === 'audio' ? t.audioModel : t.videoModel}
                 </label>
                 <div className="relative mb-2">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500"/>
                   <input
                     type="text"
-                    placeholder="Pesquisar modelos..."
+                    placeholder={t.searchModels}
                     value={modelSearch}
                     onChange={e => setModelSearch(e.target.value)}
                     className={`w-full pl-10 pr-4 py-2 ${bgInput} ${borderColor} border rounded-lg text-sm focus:outline-none focus:border-indigo-500`}
@@ -910,19 +916,19 @@ export default function ChatInterface({ user, setUser }) {
                           if (activeModelTab === 'text') return !m.type || m.type === 'chat';
                           return m.type === activeModelTab;
                         }).length 
-                      : g4fModels.length} modelos disponíveis
+                      : g4fModels.length} {t.modelsAvailable}
                   </p>
-                  <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title="Atualizar modelos">
+                  <button onClick={loadModels} className={`p-1 ${textMuted} hover:text-indigo-400`} title={t.refreshModels}>
                     <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''}/>
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className={`text-sm ${textMuted} block mb-2`}>System Prompt</label>
+                <label className={`text-sm ${textMuted} block mb-2`}>{t.systemPrompt}</label>
                 <textarea
                   className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border min-h-[100px]`}
-                  placeholder="Instruções personalizadas para a IA..."
+                  placeholder={t.systemPromptPlaceholder}
                   value={userSystemPrompt}
                   onChange={e => setUserSystemPrompt(e.target.value)}
                 />
@@ -930,7 +936,7 @@ export default function ChatInterface({ user, setUser }) {
             </div>
             <div className={`p-4 ${borderColor} border-t`}>
               <button onClick={() => setShowChatConfig(false)} className="w-full bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 p-3 rounded-lg font-medium transition">
-                Aplicar
+                {t.apply}
               </button>
             </div>
           </div>
@@ -942,7 +948,7 @@ export default function ChatInterface({ user, setUser }) {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowSettings(false)}>
           <div className={`${bgCard} rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
             <div className={`p-4 ${borderColor} border-b flex justify-between items-center`}>
-              <h2 className="font-bold text-lg">Configurações da Conta</h2>
+              <h2 className="font-bold text-lg">{tUser.title}</h2>
               <button onClick={() => setShowSettings(false)} className={textMuted}>
                 <X size={24}/>
               </button>
@@ -951,7 +957,7 @@ export default function ChatInterface({ user, setUser }) {
               {/* Tema */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
-                  <Palette size={16}/> Tema
+                  <Palette size={16}/> {tUser.theme}
                 </label>
                 <div className="flex gap-2">
                   <button 
@@ -960,7 +966,7 @@ export default function ChatInterface({ user, setUser }) {
                       theme === 'dark' ? 'bg-blue-600 text-white' : (isDark ? 'bg-gray-700' : 'bg-gray-200')
                     }`}
                   >
-                    <Moon size={18}/> Escuro
+                    <Moon size={18}/> {tUser.themeDark}
                   </button>
                   <button 
                     onClick={() => setTheme('light')}
@@ -968,7 +974,7 @@ export default function ChatInterface({ user, setUser }) {
                       theme === 'light' ? 'bg-blue-600 text-white' : (isDark ? 'bg-gray-700' : 'bg-gray-200')
                     }`}
                   >
-                    <Sun size={18}/> Claro
+                    <Sun size={18}/> {tUser.themeLight}
                   </button>
                 </div>
               </div>
@@ -976,11 +982,11 @@ export default function ChatInterface({ user, setUser }) {
               {/* Nome */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
-                  <User size={16}/> Nome de Exibição
+                  <User size={16}/> {tUser.displayName}
                 </label>
                 <input
                   className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border`}
-                  placeholder="Como você quer ser chamado"
+                  placeholder={tUser.displayName}
                   value={displayName}
                   onChange={e => setDisplayName(e.target.value)}
                 />
@@ -988,36 +994,36 @@ export default function ChatInterface({ user, setUser }) {
 
               {/* Bio */}
               <div>
-                <label className={`text-sm ${textMuted} block mb-2`}>Descrição para a IA</label>
+                <label className={`text-sm ${textMuted} block mb-2`}>{tUser.bio}</label>
                 <textarea
                   className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border min-h-[80px]`}
-                  placeholder="Informações sobre você que a IA deve saber..."
+                  placeholder={tUser.bioPlaceholder}
                   value={bio}
                   onChange={e => setBio(e.target.value)}
                 />
-                <p className={`text-xs ${textMuted} mt-1`}>A IA usará isso para personalizar respostas</p>
+                <p className={`text-xs ${textMuted} mt-1`}>{tUser.apiKeyInfo}</p>
               </div>
 
               {/* API Key */}
               <div>
                 <label className={`text-sm ${textMuted} flex items-center gap-2 mb-2`}>
-                  <Key size={16}/> Chave API Pessoal (OpenRouter)
+                  <Key size={16}/> {tUser.personalApiKey}
                 </label>
                 <input
                   type="password"
                   className={`w-full ${bgInput} p-3 rounded-lg ${borderColor} border`}
-                  placeholder={hasPersonalKey ? "••••••••••••" : "sk-or-v1-..."}
+                  placeholder={hasPersonalKey ? "••••••••••••" : tUser.apiKeyPlaceholder}
                   value={personalApiKey}
                   onChange={e => setPersonalApiKey(e.target.value)}
                 />
                 {hasPersonalKey && (
-                  <p className={`text-xs text-green-500 mt-1`}>✓ Você tem uma chave pessoal configurada</p>
+                  <p className={`text-xs text-green-500 mt-1`}>✓ {tUser.apiKeyInfo}</p>
                 )}
               </div>
             </div>
             <div className={`p-4 ${borderColor} border-t`}>
               <button onClick={saveSettings} className="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-medium transition">
-                Salvar Configurações
+                {tUser.save}
               </button>
             </div>
           </div>
