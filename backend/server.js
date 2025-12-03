@@ -1524,6 +1524,12 @@ const callG4FWithFallback = async (model, messages) => {
 
 // Helper para chamada GPT4Free usando g4f.dev client
 const callG4F = async (model, messages, preferredProvider = null) => {
+    // Verifica se é modelo do G4F Python Server (g4f:modelo) e remove o prefixo
+    if (model.startsWith('g4f:')) {
+        const g4fModel = model.replace('g4f:', '');
+        return await callG4FPython(g4fModel, messages);
+    }
+    
     const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
@@ -1605,6 +1611,13 @@ const callG4F = async (model, messages, preferredProvider = null) => {
 
 // Helper para chamada GPT4Free COM SUPORTE A TOOLS
 const callG4FWithTools = async (model, messages, tools, preferredProvider = null) => {
+    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    // G4F Python não suporta tools nativamente, então fazemos fallback sem tools
+    if (model.startsWith('g4f:')) {
+        console.log('G4F Python não suporta tools, tentando sem...');
+        return await callG4F(model, messages, preferredProvider);
+    }
+    
     const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
