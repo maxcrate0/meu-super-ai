@@ -1477,10 +1477,9 @@ const callG4FWithFallback = async (model, messages) => {
             if (e.isConnectionError) {
                 console.log(`[G4F] Servidor Python offline, usando fallback JavaScript para modelo: ${cleanModel}`);
                 // Remove o prefixo e tenta com providers JavaScript
-                // Para 'auto', usa undefined para deixar o provider escolher
-                const jsModel = cleanModel === 'auto' ? undefined : cleanModel;
+                // Para 'auto' ou modelos desconhecidos, deixa undefined para que o provider escolha o melhor modelo disponível
+                model = (cleanModel === 'auto' || !cleanModel) ? undefined : cleanModel;
                 // Continua abaixo com a lógica normal de fallback
-                model = jsModel || 'gpt-4o'; // fallback para um modelo comum
             } else {
                 // Se não for erro de conexão, propaga o erro
                 throw e;
@@ -1528,7 +1527,7 @@ const callG4FWithFallback = async (model, messages) => {
             console.log(`[G4F] Tentando provedor: ${name}, modelo: ${model || 'auto'}`);
             
             const response = await client.chat.completions.create({
-                model: model || undefined, // undefined deixa o provider escolher
+                model: model, // Se undefined, client usa defaultModel ou remove o parâmetro
                 messages: messages,
             });
             
