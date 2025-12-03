@@ -300,6 +300,22 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-i
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/meu-super-ai';
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
 
+// Constantes para prefixo do G4F Python
+const G4F_PREFIX = 'g4f:';
+
+// Helper para remover prefixo g4f: de model IDs
+const stripG4FPrefix = (model) => {
+    if (model && model.startsWith(G4F_PREFIX)) {
+        return model.substring(G4F_PREFIX.length);
+    }
+    return model;
+};
+
+// Helper para verificar se é modelo G4F Python
+const isG4FPythonModel = (model) => {
+    return model && model.startsWith(G4F_PREFIX);
+};
+
 // Cache para modelos (atualiza a cada 5 minutos)
 let modelsCache = { data: [], lastFetch: 0 };
 let g4fModelsCache = { data: [], lastFetch: 0 };
@@ -1450,9 +1466,9 @@ const routeToProvider = async (provider, model, messages, apiKey = null) => {
 // Helper para chamada GPT4Free com fallback chain
 const callG4FWithFallback = async (model, messages) => {
     // Verifica se é modelo do G4F Python Server (g4f:modelo)
-    if (model.startsWith('g4f:')) {
-        const g4fModel = model.replace('g4f:', '');
-        return await callG4FPython(g4fModel, messages);
+    if (isG4FPythonModel(model)) {
+        const cleanModel = stripG4FPrefix(model);
+        return await callG4FPython(cleanModel, messages);
     }
     
     const g4f = await loadG4F();
@@ -1524,6 +1540,12 @@ const callG4FWithFallback = async (model, messages) => {
 
 // Helper para chamada GPT4Free usando g4f.dev client
 const callG4F = async (model, messages, preferredProvider = null) => {
+    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    if (isG4FPythonModel(model)) {
+        const cleanModel = stripG4FPrefix(model);
+        return await callG4FPython(cleanModel, messages);
+    }
+    
     const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
@@ -1605,6 +1627,13 @@ const callG4F = async (model, messages, preferredProvider = null) => {
 
 // Helper para chamada GPT4Free COM SUPORTE A TOOLS
 const callG4FWithTools = async (model, messages, tools, preferredProvider = null) => {
+    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    // G4F Python não suporta tools nativamente, então fazemos fallback para callG4F
+    if (isG4FPythonModel(model)) {
+        console.log('G4F Python não suporta tools, chamando callG4F para processar...');
+        return await callG4F(model, messages, preferredProvider);
+    }
+    
     const g4f = await loadG4F();
     
     // Extrai o provedor do modelo se estiver no formato "provider/model"
