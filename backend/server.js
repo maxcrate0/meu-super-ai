@@ -552,6 +552,7 @@ app.get('/api/models/g4f', async (req, res) => {
         
         // ============ G4F Python Server - Modelos dinâmicos do gpt4free ============
         // Busca TODOS os modelos de TODOS os providers funcionais do G4F Python
+        // SOMENTE SE O SERVIDOR ESTIVER ONLINE
         try {
             const g4fPythonModels = await providers.listAllG4FPythonModels();
             if (g4fPythonModels.length > 0) {
@@ -560,19 +561,13 @@ app.get('/api/models/g4f', async (req, res) => {
                     allModels.push(m);
                 });
             } else {
-                // Fallback para modelos que funcionam (testados) se o servidor estiver offline
-                const g4fFallbackModels = [
-                    { id: 'g4f:auto', name: '⚡ G4F Auto (Automático)', type: 'chat', description: 'Escolhe automaticamente o melhor provider disponível' },
-                    { id: 'g4f:ling-mini-2.0', name: '🦉 Ling Mini 2.0 (BAAI)', type: 'chat', description: 'Modelo chinês leve e rápido' },
-                    { id: 'g4f:command-r-plus', name: '🧠 Command R+ (Cohere)', type: 'chat', description: 'Modelo Cohere avançado para raciocínio' },
-                    { id: 'g4f:gemini-2.0-flash', name: '✨ Gemini 2.0 Flash (Google)', type: 'chat', description: 'Gemini rápido via proxy' },
-                ];
-                g4fFallbackModels.forEach(m => {
-                    allModels.push({ ...m, provider: 'g4f-python' });
-                });
+                // Se o servidor estiver offline, não adiciona modelos g4f:
+                // para evitar erros quando usuário tentar usá-los
+                console.log('[G4F] Servidor Python offline ou sem modelos. Modelos g4f: não serão exibidos.');
             }
         } catch (g4fErr) {
             console.error('[G4F] Erro ao buscar modelos do G4F Python:', g4fErr.message);
+            console.log('[G4F] Modelos g4f: não serão exibidos devido a erro na comunicação.');
         }
         
         // Adicionar modelos do Cloudflare Worker (gratuitos!)
@@ -1320,6 +1315,13 @@ const callG4FPython = async (model, messages) => {
             throw new Error(`G4F Python: ${e.response.data.detail}`);
         }
         
+        // Indica se é erro de conexão para permitir fallback
+        if (e.code === 'ECONNREFUSED' || e.code === 'ETIMEDOUT' || e.code === 'ENOTFOUND') {
+            const fallbackError = new Error(`G4F Python servidor offline: ${e.message}`);
+            fallbackError.isConnectionError = true;
+            throw fallbackError;
+        }
+        
         throw new Error(`G4F Python: ${e.message}`);
     }
 };
@@ -1468,7 +1470,22 @@ const callG4FWithFallback = async (model, messages) => {
     // Verifica se é modelo do G4F Python Server (g4f:modelo)
     if (isG4FPythonModel(model)) {
         const cleanModel = stripG4FPrefix(model);
-        return await callG4FPython(cleanModel, messages);
+        try {
+            return await callG4FPython(cleanModel, messages);
+        } catch (e) {
+            // Se for erro de conexão com servidor Python, faz fallback para JS providers
+            if (e.isConnectionError) {
+                console.log(`[G4F] Servidor Python offline, usando fallback JavaScript para modelo: ${cleanModel}`);
+                // Remove o prefixo e tenta com providers JavaScript
+                // Para 'auto', usa undefined para deixar o provider escolher
+                const jsModel = cleanModel === 'auto' ? undefined : cleanModel;
+                // Continua abaixo com a lógica normal de fallback
+                model = jsModel || 'gpt-4o'; // fallback para um modelo comum
+            } else {
+                // Se não for erro de conexão, propaga o erro
+                throw e;
+            }
+        }
     }
     
     const g4f = await loadG4F();
@@ -1477,7 +1494,7 @@ const callG4FWithFallback = async (model, messages) => {
     let modelName = model;
     let preferredProvider = null;
     
-    if (model.includes('/')) {
+    if (model && model.includes('/')) {
         const parts = model.split('/');
         preferredProvider = parts[0];
         modelName = parts.slice(1).join('/');
@@ -1487,11 +1504,11 @@ const callG4FWithFallback = async (model, messages) => {
     const providersToTry = [];
     
     // Cloudflare Worker - modelos começam com @cf/ ou @hf/
-    if (model.startsWith('@cf/') || model.startsWith('@hf/')) {
+    if (model && (model.startsWith('@cf/') || model.startsWith('@hf/'))) {
         providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true });
     }
     // DeepInfra - modelos com formato "org/model"
-    else if (modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
+    else if (modelName && (modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai'))) {
         providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
     }
     
@@ -1508,10 +1525,10 @@ const callG4FWithFallback = async (model, messages) => {
     
     for (const { name, client, isWorker } of providersToTry) {
         try {
-            console.log(`[G4F] Tentando provedor: ${name}, modelo: ${model}`);
+            console.log(`[G4F] Tentando provedor: ${name}, modelo: ${model || 'auto'}`);
             
             const response = await client.chat.completions.create({
-                model: model,
+                model: model || undefined, // undefined deixa o provider escolher
                 messages: messages,
             });
             

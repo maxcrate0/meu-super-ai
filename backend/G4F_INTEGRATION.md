@@ -2,6 +2,28 @@
 
 Este projeto integra o **gpt4free** (https://github.com/xtekky/gpt4free) ao backend, oferecendo acesso a mais de 100 providers de IA gratuitamente.
 
+## ⚠️ IMPORTANTE: Dois Modos de Operação
+
+O sistema funciona em **DOIS MODOS**:
+
+### Modo 1: JavaScript Providers (PADRÃO - SEMPRE FUNCIONA)
+✅ **Sempre disponível, sem necessidade de configuração extra**
+
+Providers que funcionam direto do backend Node.js:
+- **Pollinations AI** - Gratuito, sem API key, sempre funciona
+- **DeepInfra** - Tier gratuito
+- **Cloudflare Workers AI** - Gratuito  
+- **Groq** - API key gratuita (https://console.groq.com) - ULTRA RÁPIDO
+- **Cerebras** - API key gratuita (https://cloud.cerebras.ai)
+- **OpenRouter** - API key gratuita (https://openrouter.ai)
+
+**Estes modelos aparecem normalmente na lista e funcionam sem servidor Python.**
+
+### Modo 2: G4F Python Server (OPCIONAL - Requer Docker)
+⚠️ **Requer servidor Python rodando separadamente**
+
+Providers adicionais do gpt4free Python (100+ providers):
+
 ## Arquitetura
 
 ```
@@ -10,29 +32,65 @@ Este projeto integra o **gpt4free** (https://github.com/xtekky/gpt4free) ao back
 │   (Vercel)          │               │  (Azure)            │
 └─────────────────────┘               └───────────┬─────────┘
                                                   │
-                            ┌─────────────────────┼─────────────────────┐
-                            │                     │                     │
-                            ▼                     ▼                     ▼
-                   ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
-                   │  G4F Python    │   │  Pollinations  │   │  Groq/Cerebras │
-                   │  Server        │   │  DeepInfra     │   │  OpenRouter    │
-                   │  (Docker)      │   │  Cloudflare    │   │  HuggingFace   │
-                   └────────────────┘   └────────────────┘   └────────────────┘
+                        ┌─────────────────────────┼─────────────────────────┐
+                        │                         │                         │
+                        ▼                         ▼                         ▼
+              ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+              │ JS Providers    │      │ G4F Python      │      │ API Key         │
+              │ (SEMPRE)        │      │ (OPCIONAL)      │      │ Providers       │
+              │                 │      │                 │      │                 │
+              │ • Pollinations  │      │ • 100+ models   │      │ • Groq          │
+              │ • DeepInfra     │      │ • Copilot       │      │ • Cerebras      │
+              │ • Cloudflare    │      │ • Gemini        │      │ • OpenRouter    │
+              └─────────────────┘      │ • MetaAI        │      └─────────────────┘
+                                       │ • Blackbox      │
+                                       │ • etc...        │
+                                       └─────────────────┘
+                                       ⚠️ Requer Docker
 ```
 
-## Opções de Uso
+## Como Funciona
 
-### 1. Via JavaScript Client (Atual - Sem Docker)
+### Sistema de Fallback Inteligente
 
-O backend já usa um client JavaScript (`g4f-client.mjs`) que acessa:
+Quando você seleciona um modelo:
+
+1. **Modelos JavaScript** (pollinations, deepinfra, cloudflare, groq, etc.):
+   - ✅ Funcionam SEMPRE
+   - ✅ Resposta rápida
+   - ✅ Sem necessidade de servidor extra
+
+2. **Modelos Python** (prefixo `g4f:`):
+   - ⚠️ Tentam conectar ao servidor Python
+   - 🔄 Se servidor estiver **OFFLINE**: faz fallback automático para providers JavaScript
+   - ✅ Se servidor estiver **ONLINE**: usa os 100+ providers do gpt4free Python
+
+**Resultado: O sistema SEMPRE funciona, mesmo se o servidor Python estiver offline!**
+
+## Setup Rápido (Apenas JS Providers)
+
+### 1. Modo JavaScript (Padrão - RECOMENDADO)
+
+O backend já usa um client JavaScript (`g4f-client.mjs`) que acessa providers gratuitos.
+
+**Nenhuma configuração necessária!** Os seguintes providers já funcionam:
 - **Pollinations AI** - Gratuito, sem API key
-- **DeepInfra** - Tier gratuito
+- **DeepInfra** - Tier gratuito  
 - **Cloudflare Workers AI** - Gratuito
-- **Groq** - API key gratuita (https://console.groq.com)
+
+### 2. (OPCIONAL) Adicione API Keys Gratuitas
+
+Para acesso a modelos mais rápidos, adicione as API keys no painel de admin:
+
+- **Groq** - API key gratuita (https://console.groq.com) - **ULTRA RÁPIDO!**
 - **Cerebras** - API key gratuita (https://cloud.cerebras.ai)
 - **OpenRouter** - API key gratuita (https://openrouter.ai)
 
-### 2. Via G4F Python Server (Docker)
+```bash
+# No painel de admin (/admin), vá em "Configurações Globais" e adicione as keys
+```
+
+## Setup Avançado (G4F Python Server - OPCIONAL)
 
 Para acessar TODOS os providers do gpt4free Python (100+):
 
