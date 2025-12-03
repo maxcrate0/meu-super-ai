@@ -58,6 +58,38 @@ def set_cached_models(data):
     models_cache["data"] = data
     models_cache["timestamp"] = time.time()
 
+
+def _find_provider_by_name(name: str):
+    """Retorna o objeto provider cujo __name__ bate com `name` (case-insensitive) ou None."""
+    if not name:
+        return None
+    for p in __providers__:
+        try:
+            if p.__name__.lower() == name.lower():
+                return p
+        except Exception:
+            continue
+    return None
+
+
+def normalize_model_and_maybe_provider(model: Optional[str]):
+    """Normaliza uma string de modelo que pode vir no formato 'provider:model'.
+
+    Retorna uma tupla (provider_obj_or_None, model_or_None).
+    - Se `model` for None ou 'auto' retorna (None, None).
+    - Se contiver ':' tenta separar provider e modelo.
+    - Caso contrário retorna (None, model).
+    """
+    if not model or model == "auto":
+        return None, None
+
+    if isinstance(model, str) and ":" in model:
+        prov, mdl = model.split(":", 1)
+        prov_obj = _find_provider_by_name(prov)
+        return prov_obj, mdl
+
+    return None, model
+
 # Executor para chamadas síncronas com timeout
 executor = ThreadPoolExecutor(max_workers=4)
 
@@ -268,18 +300,18 @@ async def chat_completions(request: ChatCompletionRequest):
     try:
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
         
-        # Configura provider se especificado
+        # Configura provider se especificado (request.provider) ou definido no próprio model (prov:model)
         provider = None
         if request.provider:
-            provider_name = request.provider
-            for p in __providers__:
-                if p.__name__.lower() == provider_name.lower():
-                    provider = p
-                    break
-        
-        # Modelo: None para auto, ou o modelo especificado
-        model_to_use = None if request.model == "auto" else request.model
-        
+            provider = _find_provider_by_name(request.provider)
+
+        # Normaliza model e, se houver prefixo 'prov:model', obtém também o provider
+        prov_from_model, normalized_model = normalize_model_and_maybe_provider(request.model)
+        if prov_from_model and not provider:
+            provider = prov_from_model
+
+        # Modelo final a ser usado pelo cliente: None para auto, ou o modelo normalizado
+        model_to_use = None if (not normalized_model or normalized_model == "auto") else normalized_model
         if request.stream:
             return StreamingResponse(
                 stream_chat_response(
@@ -348,8 +380,9 @@ async def stream_chat_response(
     """Gera resposta em streaming - baseado no exemplo oficial messages_stream.py"""
     try:
         # Cria o stream - conforme exemplo oficial
-        stream = client.chat.completions.create(
-            model=model,
+            # Cria o stream - se `model` for None deixa como None (auto), caso contrário usa o valor já normalizado
+            stream = client.chat.completions.create(
+                model=model,
             messages=messages,
             provider=provider,
             stream=True,
