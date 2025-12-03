@@ -277,10 +277,13 @@ async def chat_completions(request: ChatCompletionRequest):
                     provider = p
                     break
         
+        # Modelo: None para auto, ou o modelo especificado
+        model_to_use = None if request.model == "auto" else request.model
+        
         if request.stream:
             return StreamingResponse(
                 stream_chat_response(
-                    model=request.model,
+                    model=model_to_use,
                     messages=messages,
                     provider=provider,
                     temperature=request.temperature,
@@ -290,33 +293,45 @@ async def chat_completions(request: ChatCompletionRequest):
                 media_type="text/event-stream"
             )
         else:
-            # Resposta não-streaming
+            # Resposta não-streaming - usa AsyncClient corretamente
+            # Baseado no exemplo oficial: etc/examples/text_completions_demo_async.py
             response = await client.chat.completions.create(
-                model=request.model if request.model != "auto" else None,
+                model=model_to_use,
                 messages=messages,
                 provider=provider,
                 web_search=request.web_search
             )
             
+            # Extrai conteúdo da resposta
+            content = ""
+            if hasattr(response, 'choices') and response.choices:
+                if hasattr(response.choices[0], 'message'):
+                    content = response.choices[0].message.content or ""
+            
+            # Obtém provider usado
+            used_provider = "g4f"
+            if hasattr(response, 'provider'):
+                used_provider = str(response.provider)
+            
             return {
                 "id": f"chatcmpl-{id(response)}",
                 "object": "chat.completion",
-                "created": int(asyncio.get_event_loop().time()),
+                "created": int(time.time()),
                 "model": request.model,
                 "choices": [{
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": response.choices[0].message.content
+                        "content": content
                     },
                     "finish_reason": "stop"
                 }],
                 "usage": {
                     "prompt_tokens": sum(len(m.content.split()) for m in request.messages),
-                    "completion_tokens": len(response.choices[0].message.content.split()),
+                    "completion_tokens": len(content.split()) if content else 0,
                     "total_tokens": 0
                 },
-                "provider": getattr(response, 'provider', 'g4f')
+                "provider": used_provider
             }
             
     except Exception as e:
@@ -330,38 +345,57 @@ async def stream_chat_response(
     max_tokens: int = None,
     web_search: bool = False
 ) -> AsyncGenerator[str, None]:
-    """Gera resposta em streaming"""
+    """Gera resposta em streaming - baseado no exemplo oficial messages_stream.py"""
     try:
-        response = await client.chat.completions.create(
-            model=model if model != "auto" else None,
+        # Cria o stream - conforme exemplo oficial
+        stream = client.chat.completions.create(
+            model=model,
             messages=messages,
             provider=provider,
             stream=True,
             web_search=web_search
         )
         
-        async for chunk in response:
-            if hasattr(chunk, 'choices') and chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, 'content') and delta.content:
+        # Itera sobre os chunks do stream
+        async for chunk in stream:
+            try:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
                     data = {
                         "id": f"chatcmpl-{id(chunk)}",
                         "object": "chat.completion.chunk",
-                        "model": model,
+                        "model": model or "auto",
                         "choices": [{
                             "index": 0,
-                            "delta": {"content": delta.content},
+                            "delta": {"content": content},
                             "finish_reason": None
                         }]
                     }
                     yield f"data: {json.dumps(data)}\n\n"
+            except (AttributeError, IndexError):
+                # Chunk sem conteúdo, ignora
+                continue
         
-        # Envia [DONE]
+        # Envia chunk final com finish_reason
+        final_data = {
+            "id": f"chatcmpl-final",
+            "object": "chat.completion.chunk",
+            "model": model or "auto",
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+            }]
+        }
+        yield f"data: {json.dumps(final_data)}\n\n"
+        
+        # Envia [DONE] para sinalizar fim do stream
         yield "data: [DONE]\n\n"
         
     except Exception as e:
         error_data = {"error": {"message": str(e), "type": "server_error"}}
         yield f"data: {json.dumps(error_data)}\n\n"
+        yield "data: [DONE]\n\n"
 
 @app.post("/v1/images/generations")
 async def image_generations(request: ImageGenerationRequest):
