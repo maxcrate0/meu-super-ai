@@ -4234,12 +4234,38 @@ app.get('/api/admin/models/all', auth, adminOnly, async (req, res) => {
     }
 });
 
+// Flag global para cancelamento do teste de modelos
+let modelTestCancelled = false;
+let modelTestRunning = false;
+
+// Cancelar teste de modelos em andamento
+app.post('/api/admin/models/test-cancel', auth, adminOnly, async (req, res) => {
+    if (!modelTestRunning) {
+        return res.json({ success: false, message: 'Nenhum teste em andamento' });
+    }
+    modelTestCancelled = true;
+    res.json({ success: true, message: 'Cancelamento solicitado. O teste será interrompido no próximo lote.' });
+});
+
+// Status do teste de modelos
+app.get('/api/admin/models/test-status', auth, adminOnly, async (req, res) => {
+    res.json({ running: modelTestRunning, cancelled: modelTestCancelled });
+});
+
 // Testar todos os modelos e ocultar os que não funcionam
 app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
+    if (modelTestRunning) {
+        return res.json({ success: false, message: 'Um teste já está em andamento. Aguarde ou cancele.' });
+    }
+    
+    // Reseta flags
+    modelTestCancelled = false;
+    modelTestRunning = true;
+    
     // Envia resposta imediata e processa em background
     res.json({ 
         success: true, 
-        message: 'Teste iniciado. Os resultados serão salvos automaticamente.',
+        message: 'Teste iniciado. Os resultados serão salvos automaticamente. Use /test-cancel para interromper.',
         startedAt: new Date().toISOString()
     });
     
@@ -4258,20 +4284,31 @@ app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
             
             if (models.length === 0) {
                 console.log('[MODEL-TEST] Nenhum modelo no cache para testar');
+                modelTestRunning = false;
                 return;
             }
             
-            console.log(`[MODEL-TEST] Iniciando teste de ${models.length} modelos...`);
+            console.log(`[MODEL-TEST] Iniciando teste de ${models.length} modelos (lotes de 60, timeout 15s)...`);
             
             const testMessage = [{ role: 'user', content: 'Responda apenas "OK" para confirmar que está funcionando.' }];
             const results = [];
             const newHiddenModels = [...hiddenModels];
             
-            // Testar modelos de texto/chat em paralelo (lotes de 5)
+            // Testar modelos de texto/chat em paralelo (lotes de 60)
             const chatModels = models.filter(m => m.type === 'chat' || m.type === 'moderation');
+            const BATCH_SIZE = 60;
+            const TIMEOUT_MS = 15000;
+            const BATCH_PAUSE_MS = 500;
             
-            for (let i = 0; i < chatModels.length; i += 5) {
-                const batch = chatModels.slice(i, i + 5);
+            for (let i = 0; i < chatModels.length; i += BATCH_SIZE) {
+                // Verificar se foi cancelado
+                if (modelTestCancelled) {
+                    console.log(`[MODEL-TEST] ⚠️ Teste CANCELADO pelo usuário no lote ${Math.floor(i/BATCH_SIZE) + 1}`);
+                    break;
+                }
+                
+                const batch = chatModels.slice(i, i + BATCH_SIZE);
+                console.log(`[MODEL-TEST] Processando lote ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(chatModels.length/BATCH_SIZE)} (${batch.length} modelos)`);
                 
                 const batchResults = await Promise.all(batch.map(async (model) => {
                     const modelKey = `${model.provider}:${model.id}`;
@@ -4297,6 +4334,20 @@ app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
                                 if (!process.env.CEREBRAS_API_KEY) throw new Error('Cerebras API Key não configurada');
                                 client = new g4f.Cerebras({ apiKey: process.env.CEREBRAS_API_KEY });
                                 break;
+                            case 'g4f-python':
+                                // Modelos do G4F Python - usar callG4FPython
+                                const pythonResponse = await Promise.race([
+                                    callG4FPython(model.id, testMessage),
+                                    new Promise((_, reject) => 
+                                        setTimeout(() => reject(new Error('Timeout')), TIMEOUT_MS)
+                                    )
+                                ]);
+                                const duration = Date.now() - startTime;
+                                if (pythonResponse?.content) {
+                                    console.log(`[MODEL-TEST] ✓ ${model.id} (g4f-python) - OK em ${duration}ms`);
+                                    return { model, success: true, duration, error: null };
+                                }
+                                throw new Error('Resposta vazia');
                             case 'pollinations-ai':
                             default:
                                 client = new g4f.PollinationsAI();
@@ -4309,7 +4360,7 @@ app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
                                 messages: testMessage,
                             }),
                             new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout após 30s')), 30000)
+                                setTimeout(() => reject(new Error('Timeout')), TIMEOUT_MS)
                             )
                         ]);
                         
@@ -4351,8 +4402,8 @@ app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
                 results.push(...batchResults);
                 
                 // Pequena pausa entre lotes para não sobrecarregar
-                if (i + 5 < chatModels.length) {
-                    await new Promise(r => setTimeout(r, 1000));
+                if (i + BATCH_SIZE < chatModels.length && !modelTestCancelled) {
+                    await new Promise(r => setTimeout(r, BATCH_PAUSE_MS));
                 }
             }
             
@@ -4376,6 +4427,7 @@ app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
                     key: 'MODEL_TEST_RESULTS', 
                     value: {
                         timestamp: new Date(),
+                        cancelled: modelTestCancelled,
                         totalTested: results.length,
                         successful: results.filter(r => r.success).length,
                         failed: results.filter(r => !r.success).length,
@@ -4406,10 +4458,14 @@ app.post('/api/admin/models/test-all', auth, adminOnly, async (req, res) => {
                 g4fModelsCache = { data: null, lastFetch: 0 };
             }
             
-            console.log(`[MODEL-TEST] Teste concluído: ${results.filter(r => r.success).length}/${results.length} funcionando, ${hiddenCount} modelos ocultados`);
+            const statusMsg = modelTestCancelled ? 'CANCELADO' : 'concluído';
+            console.log(`[MODEL-TEST] Teste ${statusMsg}: ${results.filter(r => r.success).length}/${results.length} funcionando, ${hiddenCount} modelos ocultados`);
             
         } catch (e) {
             console.error('[MODEL-TEST] Erro durante teste:', e.message);
+        } finally {
+            modelTestRunning = false;
+            modelTestCancelled = false;
         }
     })();
 });
