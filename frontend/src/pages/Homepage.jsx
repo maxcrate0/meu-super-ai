@@ -734,6 +734,31 @@ export default function Homepage({ user, setUser }) {
           </div>
         </section>
 
+        {/* Donation Section */}
+        <section className="relative z-10 py-12 px-4 bg-gray-950/50">
+          <div className="max-w-2xl mx-auto text-center">
+            <h3 className="text-xl font-semibold mb-4 text-gray-300">{t.donation.title}</h3>
+            <p className="text-gray-400 mb-6 text-sm">
+              {t.donation.desc}
+            </p>
+            <div className="flex justify-center">
+              <form action="https://www.paypal.com/donate" method="post" target="_blank">
+                <input type="hidden" name="business" value="FPWQ5HGBR38SG" />
+                <input type="hidden" name="no_recurring" value="0" />
+                <input type="hidden" name="currency_code" value="USD" />
+                <input 
+                  type="image" 
+                  src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" 
+                  name="submit" 
+                  title="PayPal - The safer, easier way to pay online!" 
+                  alt="Donate with PayPal button"
+                  className="cursor-pointer hover:opacity-80 transition"
+                />
+              </form>
+            </div>
+          </div>
+        </section>
+
         {/* Footer */}
         <footer className="relative z-10 py-12 px-4 border-t border-white/5 bg-gray-950/80">
           <div className="max-w-6xl mx-auto">

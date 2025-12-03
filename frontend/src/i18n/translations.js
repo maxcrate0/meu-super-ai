@@ -91,6 +91,10 @@ export const translations = {
         title: 'Entre em Contato',
         description: 'Tem dúvidas, sugestões ou quer colaborar? Estamos sempre abertos a novas ideias e parcerias.'
       },
+      donation: {
+        title: 'Apoie o Projeto',
+        desc: 'Se você gosta dos nossos projetos, considere fazer uma doação para ajudar a manter tudo funcionando.'
+      },
       footer: {
         description: 'Plataforma de soluções digitais que combina Inteligência Artificial avançada com métodos de estudo comprovados.',
         quickLinks: 'Links Rápidos',
@@ -421,6 +425,10 @@ export const translations = {
       contact: {
         title: 'Get in Touch',
         description: 'Have questions, suggestions or want to collaborate? We are always open to new ideas and partnerships.'
+      },
+      donation: {
+        title: 'Support the Project',
+        desc: 'If you like our projects, consider making a donation to help keep everything running.'
       },
       footer: {
         description: 'Digital solutions platform that combines advanced Artificial Intelligence with proven study methods.',
