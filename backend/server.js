@@ -300,21 +300,33 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-i
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/meu-super-ai';
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
 
-// Constantes para prefixo do G4F Python
-const G4F_PREFIX = 'g4f:';
-
-// Helper para remover prefixo g4f: de model IDs
-const stripG4FPrefix = (model) => {
-    if (model && model.startsWith(G4F_PREFIX)) {
-        return model.substring(G4F_PREFIX.length);
+// Helper para verificar se é modelo G4F Python baseado no cache
+// Retorna o provider do modelo se encontrado no cache G4F, ou null se não encontrado
+const getModelProviderFromCache = (modelId) => {
+    // Busca no cache de modelos G4F
+    if (g4fModelsCache.data && g4fModelsCache.data.length > 0) {
+        const model = g4fModelsCache.data.find(m => m.id === modelId);
+        if (model) {
+            return model.provider || null;
+        }
     }
-    return model;
+    return null;
 };
 
-// Helper para verificar se é modelo G4F Python
-const isG4FPythonModel = (model) => {
-    return model && model.startsWith(G4F_PREFIX);
+// Helper para verificar se é modelo G4F Python (provider === 'g4f-python')
+const isG4FPythonModel = (modelId) => {
+    const provider = getModelProviderFromCache(modelId);
+    return provider === 'g4f-python';
 };
+
+// Lista de modelos conhecidos do G4F Python (fallback)
+const KNOWN_G4F_PYTHON_MODELS = [
+    'auto', 'gpt-4', 'gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo',
+    'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku',
+    'claude-3.5-sonnet', 'gemini-pro', 'gemini-1.5-pro',
+    'ling-mini-2.0', 'command-r-plus', 'gemini-2.0-flash',
+    'llama-3.1-70b', 'llama-3.1-8b', 'mixtral-8x7b'
+];
 
 // Cache para modelos (atualiza a cada 5 minutos)
 let modelsCache = { data: [], lastFetch: 0 };
@@ -561,11 +573,12 @@ app.get('/api/models/g4f', async (req, res) => {
                 });
             } else {
                 // Fallback para modelos que funcionam (testados) se o servidor estiver offline
+                // NOTA: IDs SEM prefixo 'g4f:' - identificação é feita pelo campo 'provider'
                 const g4fFallbackModels = [
-                    { id: 'g4f:auto', name: '⚡ G4F Auto (Automático)', type: 'chat', description: 'Escolhe automaticamente o melhor provider disponível' },
-                    { id: 'g4f:ling-mini-2.0', name: '🦉 Ling Mini 2.0 (BAAI)', type: 'chat', description: 'Modelo chinês leve e rápido' },
-                    { id: 'g4f:command-r-plus', name: '🧠 Command R+ (Cohere)', type: 'chat', description: 'Modelo Cohere avançado para raciocínio' },
-                    { id: 'g4f:gemini-2.0-flash', name: '✨ Gemini 2.0 Flash (Google)', type: 'chat', description: 'Gemini rápido via proxy' },
+                    { id: 'auto', name: '⚡ G4F Auto (Automático)', type: 'chat', description: 'Escolhe automaticamente o melhor provider disponível' },
+                    { id: 'ling-mini-2.0', name: '🦉 Ling Mini 2.0 (BAAI)', type: 'chat', description: 'Modelo chinês leve e rápido' },
+                    { id: 'command-r-plus', name: '🧠 Command R+ (Cohere)', type: 'chat', description: 'Modelo Cohere avançado para raciocínio' },
+                    { id: 'gemini-2.0-flash', name: '✨ Gemini 2.0 Flash (Google)', type: 'chat', description: 'Gemini rápido via proxy' },
                 ];
                 g4fFallbackModels.forEach(m => {
                     allModels.push({ ...m, provider: 'g4f-python' });
@@ -1273,9 +1286,13 @@ const callGroq = async (model, messages) => {
 };
 
 // Handler para G4F Python Server (gpt4free em Python)
-const G4F_PYTHON_URL = process.env.G4F_API_URL || 'http://meu-super-ai-g4f.southcentralus.azurecontainer.io:8080';
+const G4F_PYTHON_URL = process.env.G4F_API_URL || 'http://meu-super-ai-g4f.centralus.azurecontainer.io:8080';
 
 const callG4FPython = async (model, messages) => {
+    // Remove prefixo g4f: se ainda estiver presente (segurança extra)
+    if (model && model.startsWith('g4f:')) {
+        model = model.substring(4);
+    }
     console.log(`[G4F Python] Chamando modelo: ${model}`);
     
     try {
@@ -1465,10 +1482,9 @@ const routeToProvider = async (provider, model, messages, apiKey = null) => {
 
 // Helper para chamada GPT4Free com fallback chain
 const callG4FWithFallback = async (model, messages) => {
-    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    // Verifica se é modelo do G4F Python Server
     if (isG4FPythonModel(model)) {
-        const cleanModel = stripG4FPrefix(model);
-        return await callG4FPython(cleanModel, messages);
+        return await callG4FPython(model, messages);
     }
     
     const g4f = await loadG4F();
@@ -1540,10 +1556,9 @@ const callG4FWithFallback = async (model, messages) => {
 
 // Helper para chamada GPT4Free usando g4f.dev client
 const callG4F = async (model, messages, preferredProvider = null) => {
-    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    // Verifica se é modelo do G4F Python Server
     if (isG4FPythonModel(model)) {
-        const cleanModel = stripG4FPrefix(model);
-        return await callG4FPython(cleanModel, messages);
+        return await callG4FPython(model, messages);
     }
     
     const g4f = await loadG4F();
@@ -1627,7 +1642,7 @@ const callG4F = async (model, messages, preferredProvider = null) => {
 
 // Helper para chamada GPT4Free COM SUPORTE A TOOLS
 const callG4FWithTools = async (model, messages, tools, preferredProvider = null) => {
-    // Verifica se é modelo do G4F Python Server (g4f:modelo)
+    // Verifica se é modelo do G4F Python Server
     // G4F Python não suporta tools nativamente, então fazemos fallback para callG4F
     if (isG4FPythonModel(model)) {
         console.log('G4F Python não suporta tools, chamando callG4F para processar...');

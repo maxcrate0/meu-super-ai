@@ -83,6 +83,12 @@ def normalize_model_and_maybe_provider(model: Optional[str]):
     if not model or model == "auto":
         return None, None
 
+    # Remove prefixo 'g4f:' que é apenas marcador do frontend
+    if isinstance(model, str) and model.startswith("g4f:"):
+        model = model[4:]  # Remove 'g4f:'
+        if not model or model == "auto":
+            return None, None
+
     if isinstance(model, str) and ":" in model:
         prov, mdl = model.split(":", 1)
         prov_obj = _find_provider_by_name(prov)
@@ -370,30 +376,40 @@ async def chat_completions(request: ChatCompletionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def stream_chat_response(
-    model: str,
+    model: Optional[str],
     messages: List[Dict],
-    provider = None,
-    temperature: float = None,
-    max_tokens: int = None,
+    provider: Optional[object] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
     web_search: bool = False
 ) -> AsyncGenerator[str, None]:
     """Gera resposta em streaming - baseado no exemplo oficial messages_stream.py"""
     try:
-        # Cria o stream - conforme exemplo oficial
-            # Cria o stream - se `model` for None deixa como None (auto), caso contrário usa o valor já normalizado
-            stream = client.chat.completions.create(
-                model=model,
+        # Cria o stream - se `model` for None deixa como None (auto), caso contrário usa o valor já normalizado
+        stream = client.chat.completions.create(
+            model=model,
             messages=messages,
             provider=provider,
             stream=True,
             web_search=web_search
         )
-        
+
         # Itera sobre os chunks do stream
         async for chunk in stream:
             try:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
+                # Tenta extrair conteúdo do delta (forma comum em streams)
+                content = None
+                if getattr(chunk, 'choices', None):
+                    choice = chunk.choices[0]
+                    # delta.content costuma ser usado em streams incrementais
+                    delta = getattr(choice, 'delta', None)
+                    if delta and getattr(delta, 'content', None):
+                        content = delta.content
+                    # alguns providers retornam message.content diretamente
+                    if not content and getattr(choice, 'message', None):
+                        content = getattr(choice.message, 'content', None)
+
+                if content:
                     data = {
                         "id": f"chatcmpl-{id(chunk)}",
                         "object": "chat.completion.chunk",
@@ -408,7 +424,7 @@ async def stream_chat_response(
             except (AttributeError, IndexError):
                 # Chunk sem conteúdo, ignora
                 continue
-        
+
         # Envia chunk final com finish_reason
         final_data = {
             "id": f"chatcmpl-final",
@@ -421,10 +437,10 @@ async def stream_chat_response(
             }]
         }
         yield f"data: {json.dumps(final_data)}\n\n"
-        
+
         # Envia [DONE] para sinalizar fim do stream
         yield "data: [DONE]\n\n"
-        
+
     except Exception as e:
         error_data = {"error": {"message": str(e), "type": "server_error"}}
         yield f"data: {json.dumps(error_data)}\n\n"

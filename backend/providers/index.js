@@ -11,7 +11,7 @@ const axios = require('axios');
 const clientCache = new Map();
 
 // URL do servidor G4F Python (pode ser local ou remoto)
-const G4F_PYTHON_API_URL = process.env.G4F_API_URL || 'http://meu-super-ai-g4f.southcentralus.azurecontainer.io:8080';
+const G4F_PYTHON_API_URL = process.env.G4F_API_URL || 'http://meu-super-ai-g4f.centralus.azurecontainer.io:8080';
 
 /**
  * Configuração dos providers disponíveis
@@ -436,6 +436,7 @@ async function generateImageG4FPython(prompt, model = 'flux', provider = null) {
 /**
  * Lista TODOS os modelos de TODOS os providers do G4F Python
  * Retorna modelos agrupados por provider, prontos para exibição
+ * NOTA: Os IDs são retornados SEM prefixo 'g4f:' - a identificação é feita pelo campo 'provider'
  */
 async function listAllG4FPythonModels() {
   try {
@@ -447,8 +448,9 @@ async function listAllG4FPythonModels() {
     }
     
     // Retorna modelos no formato esperado pelo frontend
+    // IMPORTANTE: NÃO adiciona prefixo g4f: - o campo provider identifica a origem
     return response.data.data.map(m => ({
-      id: `g4f:${m.id}`,
+      id: m.id,  // ID limpo, sem prefixo
       name: m.id,
       provider: 'g4f-python',
       type: m.type || 'chat',
