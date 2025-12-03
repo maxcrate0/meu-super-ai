@@ -429,6 +429,25 @@ export default function AdminDashboard() {
     }
   };
 
+  const toggleAdmin = async (userId) => {
+    const user = users.find(u => u._id === userId);
+    const action = user?.role === 'admin' ? 'rebaixar de admin' : 'promover a admin';
+    if (!confirm(`Tem certeza que deseja ${action} o usuário "${user?.username}"?`)) return;
+    try {
+      const res = await axios.patch(API_URL + '/admin/user/' + userId + '/toggle-admin', {}, { 
+        headers: { Authorization: 'Bearer ' + token } 
+      });
+      loadUsers();
+      // Recarrega detalhes do usuário se estiver visualizando
+      if (selectedUser === userId) {
+        selectUser(userId);
+      }
+      alert(res.data.message || 'Papel do usuário alterado com sucesso!');
+    } catch(err) {
+      alert('Erro ao alterar papel do usuário: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   const saveGlobalApiKey = async () => {
     try {
       const payload = {};
@@ -654,6 +673,17 @@ export default function AdminDashboard() {
                     className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-3 py-2 rounded-lg flex items-center gap-2 transition text-sm"
                   >
                     <Send size={14}/> Mensagem
+                  </button>
+                  <button 
+                    onClick={() => toggleAdmin(userDetails.user._id)}
+                    className={`${
+                      userDetails.user.role === 'admin' 
+                        ? 'bg-gray-600/20 hover:bg-gray-600/30 text-gray-400' 
+                        : 'bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400'
+                    } px-3 py-2 rounded-lg flex items-center gap-2 transition text-sm`}
+                  >
+                    <Shield size={14}/> 
+                    {userDetails.user.role === 'admin' ? 'Remover Admin' : 'Tornar Admin'}
                   </button>
                   {userDetails.user.role !== 'admin' && (
                     <button 
