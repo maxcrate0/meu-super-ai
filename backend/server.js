@@ -3064,6 +3064,40 @@ app.delete('/api/admin/user/:id', auth, adminOnly, async (req, res) => {
     res.json({ success: true });
 });
 
+// Promover/rebaixar usuário para/de admin
+app.patch('/api/admin/user/:id/toggle-admin', auth, adminOnly, async (req, res) => {
+    try {
+        await connectDB();
+        
+        // Não pode alterar a si mesmo
+        if (req.params.id === req.user._id.toString()) {
+            return res.status(400).json({ error: 'Não pode alterar seu próprio papel' });
+        }
+        
+        const user = await User.findById(req.params.id);
+        if (!user) {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+        }
+        
+        // Toggle role
+        const newRole = user.role === 'admin' ? 'user' : 'admin';
+        user.role = newRole;
+        await user.save();
+        
+        // Invalida cache do usuário
+        cache.del(`user:${req.params.id}`);
+        
+        res.json({ 
+            success: true, 
+            role: newRole,
+            message: newRole === 'admin' ? 'Usuário promovido a admin' : 'Admin rebaixado a usuário'
+        });
+    } catch (err) {
+        console.error('Erro ao alterar papel do usuário:', err);
+        res.status(500).json({ error: 'Erro ao alterar papel do usuário: ' + err.message });
+    }
+});
+
 // ============ ADMIN - CHATS ============
 
 app.get('/api/admin/chat/:id', auth, adminOnly, async (req, res) => {
