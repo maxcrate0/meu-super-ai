@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Sitemap: https://jgsp.me/sitemap.xml
+
+# Bloquear páginas de admin
+Disallow: /admin
+Disallow: /admin/content

@@ -14,8 +14,95 @@ export const translations = {
     logout: 'Sair',
     login: 'Entrar',
     register: 'Cadastrar',
+
+    // Nova Landing Page Principal
+    landing: {
+      seo: {
+        title: 'JGSP - Plataforma de IA e Soluções Digitais | jgspAI & Smart-Co',
+        description: 'Plataforma completa de soluções digitais. jgspAI: Chat com IA avançada. Smart-Co: Métodos de estudo comprovados para ENEM e concursos.',
+        keywords: 'inteligência artificial, IA, chatbot, GPT, Claude, Gemini, estudos, ENEM, concursos, produtividade'
+      },
+      navbar: {
+        projects: 'Projetos',
+        about: 'Sobre',
+        contact: 'Contato',
+        hello: 'Olá',
+        login: 'Entrar',
+        register: 'Registrar',
+        logout: 'Sair',
+        loggedAs: 'Logado como'
+      },
+      hero: {
+        title: 'Soluções Digitais Inteligentes',
+        subtitle: 'Unindo o poder da Inteligência Artificial com métodos comprovados de aprendizado. Conheça nossos projetos inovadores.',
+        cta: 'Explorar Projetos'
+      },
+      projects: {
+        title: 'Nossos Projetos',
+        subtitle: 'Duas soluções poderosas para impulsionar sua produtividade e aprendizado.',
+        jgspai: {
+          badge: 'Inteligência Artificial',
+          description: 'Plataforma de IA avançada com múltiplos modelos (GPT-4, Claude, Gemini, Llama), ferramentas customizáveis e execução de código. Tudo gratuito via OpenRouter e GPT4Free.',
+          features: [
+            'Acesso a dezenas de modelos de IA',
+            'Crie suas próprias ferramentas',
+            'Execução de código e pesquisa web',
+            'Sistema Swarm para tarefas complexas'
+          ],
+          cta: 'Acessar jgspAI'
+        },
+        smartco: {
+          badge: 'Educação & Estudos',
+          description: 'Métodos de estudo comprovados e organizados para ajudar você a conquistar seus objetivos no ENEM, concursos e vestibulares.',
+          features: [
+            'Técnicas de estudo validadas',
+            'Métodos para memorização eficiente',
+            'Estratégias para provas e concursos',
+            'Conteúdo organizado e prático'
+          ],
+          cta: 'Visitar Smart-Co'
+        }
+      },
+      whyChoose: {
+        title: 'Por que nos escolher?',
+        items: [
+          {
+            title: 'Segurança & Privacidade',
+            description: 'Seus dados são protegidos. Comandos perigosos bloqueados automaticamente. Você tem controle total.'
+          },
+          {
+            title: 'Rápido & Eficiente',
+            description: 'Otimizado para carregamento rápido. Interface responsiva que funciona perfeitamente em qualquer dispositivo.'
+          },
+          {
+            title: 'Comunidade & Suporte',
+            description: 'Projetos desenvolvidos com foco na experiência do usuário. Suporte disponível via email.'
+          }
+        ]
+      },
+      about: {
+        title: 'Sobre Nós',
+        description: 'Somos uma equipe apaixonada por tecnologia e educação. Nosso objetivo é criar ferramentas que realmente fazem diferença na vida das pessoas, combinando inovação com praticidade.',
+        global: 'Alcance Global',
+        innovation: 'Inovação Constante',
+        quality: 'Qualidade Garantida'
+      },
+      contact: {
+        title: 'Entre em Contato',
+        description: 'Tem dúvidas, sugestões ou quer colaborar? Estamos sempre abertos a novas ideias e parcerias.'
+      },
+      footer: {
+        description: 'Plataforma de soluções digitais que combina Inteligência Artificial avançada com métodos de estudo comprovados.',
+        quickLinks: 'Links Rápidos',
+        docs: 'Documentação',
+        contactTitle: 'Contato',
+        rights: 'Todos os direitos reservados.',
+        privacy: 'Privacidade',
+        terms: 'Termos de Uso'
+      }
+    },
     
-    // Homepage
+    // Homepage (agora ChatHome - página do jgspAI)
     home: {
       navbar: {
         tools: 'Ferramentas',
@@ -258,8 +345,95 @@ export const translations = {
     logout: 'Logout',
     login: 'Login',
     register: 'Register',
+
+    // New Main Landing Page
+    landing: {
+      seo: {
+        title: 'JGSP - AI Platform & Digital Solutions | jgspAI & Smart-Co',
+        description: 'Complete digital solutions platform. jgspAI: Advanced AI chat. Smart-Co: Proven study methods for exams and tests.',
+        keywords: 'artificial intelligence, AI, chatbot, GPT, Claude, Gemini, study, exams, productivity'
+      },
+      navbar: {
+        projects: 'Projects',
+        about: 'About',
+        contact: 'Contact',
+        hello: 'Hello',
+        login: 'Login',
+        register: 'Register',
+        logout: 'Logout',
+        loggedAs: 'Logged in as'
+      },
+      hero: {
+        title: 'Smart Digital Solutions',
+        subtitle: 'Combining the power of Artificial Intelligence with proven learning methods. Discover our innovative projects.',
+        cta: 'Explore Projects'
+      },
+      projects: {
+        title: 'Our Projects',
+        subtitle: 'Two powerful solutions to boost your productivity and learning.',
+        jgspai: {
+          badge: 'Artificial Intelligence',
+          description: 'Advanced AI platform with multiple models (GPT-4, Claude, Gemini, Llama), customizable tools and code execution. All free via OpenRouter and GPT4Free.',
+          features: [
+            'Access to dozens of AI models',
+            'Create your own tools',
+            'Code execution and web search',
+            'Swarm system for complex tasks'
+          ],
+          cta: 'Access jgspAI'
+        },
+        smartco: {
+          badge: 'Education & Studies',
+          description: 'Proven and organized study methods to help you achieve your goals in exams and tests.',
+          features: [
+            'Validated study techniques',
+            'Efficient memorization methods',
+            'Exam and test strategies',
+            'Organized and practical content'
+          ],
+          cta: 'Visit Smart-Co'
+        }
+      },
+      whyChoose: {
+        title: 'Why choose us?',
+        items: [
+          {
+            title: 'Security & Privacy',
+            description: 'Your data is protected. Dangerous commands automatically blocked. You have full control.'
+          },
+          {
+            title: 'Fast & Efficient',
+            description: 'Optimized for fast loading. Responsive interface that works perfectly on any device.'
+          },
+          {
+            title: 'Community & Support',
+            description: 'Projects developed with focus on user experience. Support available via email.'
+          }
+        ]
+      },
+      about: {
+        title: 'About Us',
+        description: 'We are a team passionate about technology and education. Our goal is to create tools that truly make a difference in people\'s lives, combining innovation with practicality.',
+        global: 'Global Reach',
+        innovation: 'Constant Innovation',
+        quality: 'Guaranteed Quality'
+      },
+      contact: {
+        title: 'Get in Touch',
+        description: 'Have questions, suggestions or want to collaborate? We are always open to new ideas and partnerships.'
+      },
+      footer: {
+        description: 'Digital solutions platform that combines advanced Artificial Intelligence with proven study methods.',
+        quickLinks: 'Quick Links',
+        docs: 'Documentation',
+        contactTitle: 'Contact',
+        rights: 'All rights reserved.',
+        privacy: 'Privacy',
+        terms: 'Terms of Use'
+      }
+    },
     
-    // Homepage
+    // Homepage (now ChatHome - jgspAI page)
     home: {
       navbar: {
         tools: 'Tools',

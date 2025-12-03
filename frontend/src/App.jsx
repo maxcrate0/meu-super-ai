@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import Login from './pages/Login';
 import ChatInterface from './pages/ChatInterface';
 import AdminDashboard from './pages/AdminDashboard';
 import Homepage from './pages/Homepage';
+import ChatHome from './pages/ChatHome';
 import Docs from './pages/Docs';
 import ContentEditor from './pages/ContentEditor';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
 
 function AppContent() {
   const [user, setUser] = useState(null);
@@ -34,8 +38,11 @@ function AppContent() {
       <Routes>
         {/* Páginas públicas */}
         <Route path="/" element={<Homepage user={user} setUser={setUser} />} />
+        <Route path="/jgspai" element={<ChatHome user={user} setUser={setUser} />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/login" element={<Login setUser={setUser} />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
         
         {/* Páginas protegidas */}
         <Route path="/chat" element={user ? <ChatInterface user={user} setUser={setUser} /> : <Navigate to="/login" />} />
@@ -48,8 +55,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <LanguageProvider>
-      <AppContent />
-    </LanguageProvider>
+    <HelmetProvider>
+      <LanguageProvider>
+        <AppContent />
+      </LanguageProvider>
+    </HelmetProvider>
   );
 }
