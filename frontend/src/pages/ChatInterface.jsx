@@ -14,6 +14,8 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeft,
+  Settings,
+  Wrench,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { http, chooseBase } from '../lib/api';
@@ -48,7 +50,7 @@ const MessageBubble = ({ message }) => {
   );
 };
 
-const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, loading, collapsed }) => {
+const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, loading, collapsed, children }) => {
   const [editingId, setEditingId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
 
@@ -128,6 +130,7 @@ const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, 
             );
           })}
         </div>
+        {children}
       </div>
     </aside>
   );
@@ -173,6 +176,8 @@ export default function ChatInterface({ user, setUser }) {
   const [g4fModels, setG4fModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODELS[0].id);
   const [theme, setTheme] = useState(user?.theme || 'dark');
+  const [showSettings, setShowSettings] = useState(false);
+  const [showTools, setShowTools] = useState(false);
 
   const endRef = useRef(null);
 
@@ -211,6 +216,9 @@ export default function ChatInterface({ user, setUser }) {
   }, []);
 
   const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+
+  const toggleSettings = () => setShowSettings((prev) => !prev);
+  const toggleTools = () => setShowTools((prev) => !prev);
 
   const selectChat = async (id) => {
     setActiveChatId(id);
@@ -309,7 +317,22 @@ export default function ChatInterface({ user, setUser }) {
         onRename={renameChat}
         loading={loading}
         collapsed={!sidebarOpen}
-      />
+      >
+        <div className="px-4 py-3 border-t border-gray-900 space-y-2">
+          <button
+            onClick={toggleTools}
+            className="w-full inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-800 text-gray-200 hover:border-indigo-500 text-sm"
+          >
+            <Wrench size={16} /> Ferramentas
+          </button>
+          <button
+            onClick={toggleSettings}
+            className="w-full inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-800 text-gray-200 hover:border-indigo-500 text-sm"
+          >
+            <Settings size={16} /> Configurações
+          </button>
+        </div>
+      </Sidebar>
 
       <main className="flex-1 min-h-screen flex flex-col">
         <header className="h-16 flex items-center justify-between px-4 border-b border-gray-900 bg-gray-950/80 backdrop-blur-xl">
@@ -331,6 +354,20 @@ export default function ChatInterface({ user, setUser }) {
               onChange={setSelectedModel}
               loading={loading}
             />
+            <button
+              onClick={toggleTools}
+              className="p-2 rounded-md border border-gray-800 hover:border-indigo-500"
+              title="Ferramentas"
+            >
+              <Wrench size={18} />
+            </button>
+            <button
+              onClick={toggleSettings}
+              className="p-2 rounded-md border border-gray-800 hover:border-indigo-500"
+              title="Configurações"
+            >
+              <Settings size={18} />
+            </button>
             <button
               onClick={toggleTheme}
               className="p-2 rounded-md border border-gray-800 hover:border-indigo-500"
@@ -387,6 +424,68 @@ export default function ChatInterface({ user, setUser }) {
           </div>
         </footer>
       </main>
+
+      {showSettings && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center px-4" onClick={toggleSettings}>
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-100">Configurações</h2>
+              <button onClick={toggleSettings} className="text-gray-400 hover:text-gray-200">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-2">Tema</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setTheme('dark')}
+                    className={`rounded-lg border px-3 py-2 text-sm ${theme === 'dark' ? 'border-indigo-500 text-white bg-gray-900' : 'border-gray-800 text-gray-300'}`}
+                  >
+                    <Moon size={14} className="inline mr-2" /> Escuro
+                  </button>
+                  <button
+                    onClick={() => setTheme('light')}
+                    className={`rounded-lg border px-3 py-2 text-sm ${theme === 'light' ? 'border-indigo-500 text-white bg-gray-900' : 'border-gray-800 text-gray-300'}`}
+                  >
+                    <Sun size={14} className="inline mr-2" /> Claro
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-gray-800 text-right">
+              <button onClick={toggleSettings} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTools && (
+        <div className="fixed inset-0 z-40 bg-black/50" onClick={toggleTools}>
+          <div className="absolute right-0 top-0 h-full w-full max-w-sm bg-gray-950 border-l border-gray-800 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-gray-100 text-sm font-semibold">
+                <Wrench size={16} /> Ferramentas
+              </div>
+              <button onClick={toggleTools} className="text-gray-400 hover:text-gray-200">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-sm text-gray-300">
+              <p className="text-gray-400">Gerencie e acesse ferramentas personalizadas.</p>
+              <p className="text-gray-500">Integração completa voltará em breve. Por enquanto, use o painel Admin para ajustes avançados.</p>
+              <a
+                href="/admin"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-800 hover:border-indigo-500 text-indigo-300"
+              >
+                <Settings size={14} /> Abrir Admin
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
