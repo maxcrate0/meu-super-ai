@@ -45,7 +45,7 @@ const MessageBubble = ({ message, bubbleStyles }) => {
   );
 };
 
-const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, loading, collapsed, children }) => {
+const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, loading, collapsed, children, surface, border, textMuted }) => {
   const [editingId, setEditingId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
 
@@ -64,11 +64,11 @@ const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, 
     <aside
       className={`${
         collapsed ? 'hidden lg:flex lg:w-72' : 'w-full lg:w-72'
-      } flex-shrink-0 h-full border-r border-gray-800 bg-gray-950/90 backdrop-blur-xl`}
+      } flex-shrink-0 h-full border-r ${border} ${surface} backdrop-blur-xl`}
     >
       <div className="flex flex-col h-full">
-        <div className="p-4 flex items-center justify-between border-b border-gray-800">
-          <span className="text-sm text-gray-300">Conversas</span>
+        <div className={`p-4 flex items-center justify-between border-b ${border}`}>
+          <span className={`text-sm ${textMuted}`}>Conversas</span>
           <button
             onClick={onCreate}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
@@ -80,7 +80,7 @@ const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, 
 
         <div className="flex-1 overflow-y-auto">
           {chats.length === 0 && (
-            <div className="p-4 text-sm text-gray-500">Nenhuma conversa ainda.</div>
+            <div className={`p-4 text-sm ${textMuted}`}>Nenhuma conversa ainda.</div>
           )}
           {chats.map((chat) => {
             const isActive = chat._id === activeChatId;
@@ -88,8 +88,8 @@ const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, 
             return (
               <div
                 key={chat._id}
-                className={`px-4 py-3 flex items-center gap-2 border-b border-gray-900 cursor-pointer hover:bg-gray-900/60 ${
-                  isActive ? 'bg-gray-900/70' : ''
+                className={`px-4 py-3 flex items-center gap-2 border-b ${border} cursor-pointer ${
+                  isActive ? 'bg-indigo-50 dark:bg-gray-900/60' : 'hover:bg-gray-100/70 dark:hover:bg-gray-900/60'
                 }`}
                 onClick={() => onSelect(chat._id)}
               >
@@ -98,24 +98,24 @@ const Sidebar = ({ chats, activeChatId, onSelect, onCreate, onDelete, onRename, 
                     <input
                       value={titleDraft}
                       onChange={(e) => setTitleDraft(e.target.value)}
-                      className="flex-1 bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+                      className={`flex-1 ${surface} border ${border} rounded-md px-2 py-1 text-sm focus:outline-none focus:border-indigo-500`}
                     />
-                    <button onClick={save} className="text-emerald-400 hover:text-emerald-300">
+                    <button onClick={save} className="text-emerald-500 hover:text-emerald-400">
                       <Check size={16} />
                     </button>
-                    <button onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-200">
+                    <button onClick={() => setEditingId(null)} className={`${textMuted} hover:text-gray-600 dark:hover:text-gray-200`}>
                       <X size={16} />
                     </button>
                   </div>
                 ) : (
                   <>
-                    <div className="flex-1 text-sm text-gray-200 truncate">{chat.title || 'Sem título'}</div>
-                    <button onClick={(e) => { e.stopPropagation(); startEdit(chat); }} className="text-gray-400 hover:text-gray-200">
+                    <div className="flex-1 text-sm truncate text-gray-900 dark:text-gray-200">{chat.title || 'Sem título'}</div>
+                    <button onClick={(e) => { e.stopPropagation(); startEdit(chat); }} className={`${textMuted} hover:text-gray-700 dark:hover:text-gray-200`}>
                       <Edit2 size={16} />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); onDelete(chat._id); }}
-                      className="text-gray-500 hover:text-red-400"
+                      className={`${textMuted} hover:text-red-500`}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -226,6 +226,7 @@ export default function ChatInterface({ user, setUser }) {
   };
   const pageBg = isLight ? 'bg-[#f7f7f8] text-gray-900' : 'bg-gray-950 text-gray-100';
   const surface = isLight ? 'bg-white border-gray-200' : 'bg-gray-950/80 border-gray-900';
+  const sidebarSurface = isLight ? 'bg-white text-gray-900' : 'bg-gray-950/90 text-gray-100';
   const controlBorder = isLight ? 'border-gray-200' : 'border-gray-800';
   const inputBg = isLight ? 'bg-white border-gray-200' : 'bg-gray-900 border-gray-800';
   const muted = isLight ? 'text-gray-500' : 'text-gray-400';
@@ -327,6 +328,9 @@ export default function ChatInterface({ user, setUser }) {
         onRename={renameChat}
         loading={loading}
         collapsed={!sidebarOpen}
+        surface={sidebarSurface}
+        border={controlBorder}
+        textMuted={muted}
       >
         <div className={`px-4 py-3 border-t ${controlBorder} space-y-2`}> 
           <button
