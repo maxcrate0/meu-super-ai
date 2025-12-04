@@ -180,7 +180,7 @@ print(json.dumps(models))
     G4F_PYTHON_MODELS_CACHE = models;
     G4F_PYTHON_CACHE_TIME = Date.now();
     
-    console.log(\`✅ Carregados \${models.length} modelos G4F Python dinamicamente\`);
+    console.log(`✅ Carregados ${models.length} modelos G4F Python dinamicamente`);
     return models;
   } catch (error) {
     console.error('❌ Erro ao carregar modelos G4F Python:', error.message);
@@ -193,7 +193,7 @@ print(json.dumps(models))
       { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', provider: 'g4f-python', type: 'chat' },
       { id: 'gemini-pro', name: 'Gemini Pro', provider: 'g4f-python', type: 'chat' },
     ];
-    console.log(\`⚠️ Usando fallback com \${fallback.length} modelos G4F Python\`);
+    console.log(`⚠️ Usando fallback com ${fallback.length} modelos G4F Python`);
     return fallback;
   }
 }
@@ -224,11 +224,11 @@ router.get('/models/g4f', async (_req, res) => {
     const hidden = hiddenCfg?.value || [];
     console.log('🔄 Carregando modelos G4F Python...');
     const pythonModels = await loadG4FPythonModels();
-    console.log(\`📊 Modelos G4F Python carregados: \${pythonModels.length}\`);
+    console.log(`📊 Modelos G4F Python carregados: ${pythonModels.length}`);
     const allG4F = [...G4F_MODELS, ...pythonModels];
-    console.log(\`📊 Total modelos G4F: \${allG4F.length}\`);
+    console.log(`📊 Total modelos G4F: ${allG4F.length}`);
     const filtered = filterHidden(allG4F, hidden);
-    console.log(\`📊 Modelos G4F após filtro: \${filtered.length}\`);
+    console.log(`📊 Modelos G4F após filtro: ${filtered.length}`);
     res.json(filtered);
   } catch (err) {
     console.error('❌ Erro na rota /models/g4f:', err);
