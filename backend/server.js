@@ -545,18 +545,17 @@ app.get('/api/models/g4f', async (req, res) => {
             });
         }
         
-        // Adicionar modelos do DeepInfra (gratuitos)
+        // Adicionar modelos do DeepInfra (APENAS modelos que realmente existem)
         const deepinfraModels = [
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B Instruct', type: 'chat' },
-            { id: 'meta-llama/Llama-3.2-90B-Vision-Instruct', name: 'Llama 3.2 90B Vision', type: 'chat', vision: true },
-            { id: 'meta-llama/Llama-3.2-11B-Vision-Instruct', name: 'Llama 3.2 11B Vision', type: 'chat', vision: true },
-            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B Instruct', type: 'chat' },
-            { id: 'Qwen/QwQ-32B', name: 'Qwen QwQ 32B', type: 'chat' },
+            // Modelos que realmente funcionam no DeepInfra (testados)
+            { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B Instruct', type: 'chat' },
+            { id: 'meta-llama/Meta-Llama-3.1-70B-Instruct', name: 'Llama 3.1 70B Instruct', type: 'chat' },
+            { id: 'meta-llama/Meta-Llama-3.1-405B-Instruct', name: 'Llama 3.1 405B Instruct', type: 'chat' },
             { id: 'microsoft/WizardLM-2-8x22B', name: 'WizardLM 2 8x22B', type: 'chat' },
+            { id: 'microsoft/WizardLM-2-7B', name: 'WizardLM 2 7B', type: 'chat' },
+            { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B Instruct', type: 'chat' },
+            { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', type: 'chat' },
             { id: 'mistralai/Mixtral-8x22B-Instruct-v0.1', name: 'Mixtral 8x22B', type: 'chat' },
-            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', type: 'chat' },
-            { id: 'nvidia/Llama-3.1-Nemotron-70B-Instruct', name: 'Nemotron 70B', type: 'chat' },
-            { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', type: 'chat' },
         ];
         deepinfraModels.forEach(m => {
             allModels.push({ ...m, provider: 'deepinfra' });
@@ -588,31 +587,18 @@ app.get('/api/models/g4f', async (req, res) => {
             console.error('[G4F] Erro ao buscar modelos do G4F Python:', g4fErr.message);
         }
         
-        // Adicionar modelos do Cloudflare Worker (gratuitos!)
+        // Adicionar modelos do Cloudflare Worker (APENAS modelos que realmente existem)
         const cloudflareModels = [
-            // Modelos de texto grandes
-            { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B (CF)', type: 'chat' },
-            { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B (CF)', type: 'chat' },
-            { id: '@cf/qwen/qwq-32b', name: 'Qwen QwQ 32B (CF)', type: 'chat' },
-            { id: '@cf/qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B (CF)', type: 'chat' },
-            { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen 3 30B (CF)', type: 'chat' },
-            { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 24B (CF)', type: 'chat' },
-            { id: '@cf/aisingapore/gemma-sea-lion-v4-27b-it', name: 'Gemma Sea Lion 27B (CF)', type: 'chat' },
-            { id: '@cf/google/gemma-3-12b-it', name: 'Gemma 3 12B (CF)', type: 'chat' },
-            { id: '@cf/ibm-granite/granite-4.0-h-micro', name: 'IBM Granite 4.0 (CF)', type: 'chat' },
-            { id: '@cf/meta/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B (CF)', type: 'chat' },
-            // Modelos com visão
-            { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision (CF)', type: 'chat', vision: true },
-            // Modelos de código
-            { id: '@hf/thebloke/deepseek-coder-6.7b-instruct-awq', name: 'DeepSeek Coder 6.7B (CF)', type: 'chat' },
-            // Modelos de imagem
-            { id: '@cf/black-forest-labs/flux-1-schnell', name: 'Flux Schnell (CF)', type: 'image' },
-            { id: '@cf/black-forest-labs/flux-2-dev', name: 'Flux 2 Dev (CF)', type: 'image' },
-            { id: '@cf/bytedance/stable-diffusion-xl-lightning', name: 'SDXL Lightning (CF)', type: 'image' },
+            // Modelos que realmente funcionam no Cloudflare Workers AI
+            { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (CF)', type: 'chat' },
+            { id: '@cf/meta/llama-3.2-3b-instruct', name: 'Llama 3.2 3B (CF)', type: 'chat' },
+            { id: '@cf/microsoft/wizardlm-2-8b', name: 'WizardLM 2 8B (CF)', type: 'chat' },
+            { id: '@cf/mistral/mistral-7b-instruct-v0.1', name: 'Mistral 7B (CF)', type: 'chat' },
+            { id: '@cf/thebloke/discolm-german-7b-v1-awq', name: 'Discolm German 7B (CF)', type: 'chat' },
+            // Modelos de imagem que funcionam
             { id: '@cf/stabilityai/stable-diffusion-xl-base-1.0', name: 'SDXL Base (CF)', type: 'image' },
-            { id: '@cf/lykon/dreamshaper-8-lcm', name: 'Dreamshaper 8 (CF)', type: 'image' },
-            { id: '@cf/leonardo/phoenix-1.0', name: 'Leonardo Phoenix (CF)', type: 'image' },
-            { id: '@cf/leonardo/lucid-origin', name: 'Leonardo Lucid (CF)', type: 'image' },
+            { id: '@cf/bytedance/stable-diffusion-xl-lightning', name: 'SDXL Lightning (CF)', type: 'image' },
+            { id: '@cf/lykon/dreamshaper-8-lcm', name: 'Dreamshaper 8 LCM (CF)', type: 'image' },
         ];
         cloudflareModels.forEach(m => {
             allModels.push({ ...m, provider: 'cloudflare' });
@@ -1480,63 +1466,68 @@ const routeToProvider = async (provider, model, messages, apiKey = null) => {
     }
 };
 
-// Helper para chamada GPT4Free com fallback chain
+// Helper para chamada GPT4Free com fallback chain MELHORADO
 const callG4FWithFallback = async (model, messages) => {
     // Verifica se é modelo do G4F Python Server
     if (isG4FPythonModel(model)) {
         return await callG4FPython(model, messages);
     }
-    
+
     const g4f = await loadG4F();
-    
+
     // Extrai o provedor do modelo se estiver no formato "provider/model"
     let modelName = model;
     let preferredProvider = null;
-    
+
     if (model.includes('/')) {
         const parts = model.split('/');
         preferredProvider = parts[0];
         modelName = parts.slice(1).join('/');
     }
-    
-    // Determina ordem de provedores a tentar
+
+    // Determina ordem de provedores a tentar BASEADO NO MODELO
     const providersToTry = [];
-    
-    // Cloudflare Worker - modelos começam com @cf/ ou @hf/
+
+    // 1. Cloudflare Worker - modelos começam com @cf/ ou @hf/
     if (model.startsWith('@cf/') || model.startsWith('@hf/')) {
-        providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true });
+        providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true, modelToUse: model });
     }
-    // DeepInfra - modelos com formato "org/model"
-    else if (modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
-        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
+    // 2. DeepInfra - modelos com formato "org/model" (APENAS modelos que existem)
+    else if ((preferredProvider === 'deepinfra') ||
+             (modelName.includes('meta-llama') && ['Meta-Llama-3.1-8B-Instruct', 'Meta-Llama-3.1-70B-Instruct', 'Meta-Llama-3.1-405B-Instruct'].some(valid => modelName.includes(valid))) ||
+             (modelName.includes('microsoft/WizardLM-2-8x22B') || modelName.includes('microsoft/WizardLM-2-7B')) ||
+             (modelName.includes('mistralai/Mistral-7B-Instruct') || modelName.includes('mistralai/Mixtral-8x7B') || modelName.includes('mistralai/Mixtral-8x22B'))) {
+        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra(), modelToUse: modelName });
     }
-    
-    // Fallbacks
-    const groqKey = await getGroqApiKey();
-    if (groqKey) {
-        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKey }) });
+
+    // 3. Fallbacks - APENAS se nenhum provedor específico foi identificado
+    if (providersToTry.length === 0) {
+        const groqKey = await getGroqApiKey();
+        if (groqKey) {
+            providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKey }), modelToUse: model });
+        }
+
+        // Pollinations sempre como último fallback
+        providersToTry.push({ name: 'pollinations', client: new g4f.PollinationsAI(), modelToUse: model });
     }
-    
-    // Pollinations sempre como fallback final
-    providersToTry.push({ name: 'pollinations', client: new g4f.PollinationsAI() });
-    
+
     const errors = [];
-    
-    for (const { name, client, isWorker } of providersToTry) {
+
+    for (const { name, client, isWorker, modelToUse } of providersToTry) {
         try {
-            console.log(`[G4F] Tentando provedor: ${name}, modelo: ${model}`);
-            
+            console.log(`[G4F] Tentando provedor: ${name}, modelo original: ${model}, modelo usado: ${modelToUse}`);
+
             const response = await client.chat.completions.create({
-                model: model,
+                model: modelToUse,
                 messages: messages,
             });
-            
+
             // Cloudflare Worker retorna em formato diferente
             if (isWorker && response?.response) {
                 console.log(`[G4F] Sucesso com: ${name} (Worker)`);
                 return { role: 'assistant', content: response.response, _provider: name, _tokens: 0 };
             }
-            
+
             if (response?.choices?.[0]?.message) {
                 console.log(`[G4F] Sucesso com: ${name}`);
                 const msg = response.choices[0].message;
@@ -1550,7 +1541,7 @@ const callG4FWithFallback = async (model, messages) => {
             continue;
         }
     }
-    
+
     throw new Error(`Todos os provedores falharam: ${errors.join('; ')}`);
 };
 
@@ -1578,42 +1569,42 @@ const callG4F = async (model, messages, preferredProvider = null) => {
     
     // Cloudflare Worker - modelos começam com @cf/ ou @hf/
     if (provider === 'cloudflare' || model.startsWith('@cf/') || model.startsWith('@hf/')) {
-        providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true });
+        providersToTry.push({ name: 'cloudflare', client: new g4f.Worker(), isWorker: true, modelToUse: model });
     }
     // DeepInfra - modelos com formato "org/model"
     else if (provider === 'deepinfra' || modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
-        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
+        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra(), modelToUse: modelName });
     }
     // Groq - ultra rápido (precisa de API key do banco ou env)
     else if (provider === 'groq') {
         const groqKey = await getGroqApiKey();
         if (groqKey) {
-            providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKey }) });
+            providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKey }), modelToUse: model });
         }
     }
     // Cerebras - rápido (precisa de API key)
     else if (provider === 'cerebras' && process.env.CEREBRAS_API_KEY) {
-        providersToTry.push({ name: 'cerebras', client: new g4f.Cerebras({ apiKey: process.env.CEREBRAS_API_KEY }) });
+        providersToTry.push({ name: 'cerebras', client: new g4f.Cerebras({ apiKey: process.env.CEREBRAS_API_KEY }), modelToUse: model });
     }
     
     // Fallbacks
     // Se tiver Groq configurado, usa como fallback (é muito rápido)
     const groqKeyFallback = await getGroqApiKey();
     if (groqKeyFallback && !providersToTry.some(p => p.name === 'groq')) {
-        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKeyFallback }) });
+        providersToTry.push({ name: 'groq', client: new g4f.Groq({ apiKey: groqKeyFallback }), modelToUse: model });
     }
     
     // Pollinations sempre como fallback final (funciona sempre)
-    providersToTry.push({ name: 'pollinations-ai', client: new g4f.PollinationsAI() });
+    providersToTry.push({ name: 'pollinations-ai', client: new g4f.PollinationsAI(), modelToUse: model });
     
     const errors = [];
     
-    for (const { name, client, isWorker } of providersToTry) {
+    for (const { name, client, isWorker, modelToUse } of providersToTry) {
         try {
-            console.log(`Tentando G4F com provedor: ${name}, modelo: ${model}`);
+            console.log(`Tentando G4F com provedor: ${name}, modelo original: ${model}, modelo usado: ${modelToUse}`);
             
             const response = await client.chat.completions.create({
-                model: model, // Usa o modelo completo para Cloudflare
+                model: modelToUse, // Usa o modelo completo para Cloudflare
                 messages: messages,
             });
             
@@ -1673,20 +1664,20 @@ const callG4FWithTools = async (model, messages, tools, preferredProvider = null
     
     // DeepInfra
     if (provider === 'deepinfra' || modelName.includes('meta-llama') || modelName.includes('Qwen') || modelName.includes('deepseek-ai')) {
-        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra() });
+        providersToTry.push({ name: 'deepinfra', client: new g4f.DeepInfra(), modelToUse: modelName });
     }
     
     // Pollinations sempre como fallback
-    providersToTry.push({ name: 'pollinations-ai', client: new g4f.PollinationsAI() });
+    providersToTry.push({ name: 'pollinations-ai', client: new g4f.PollinationsAI(), modelToUse: model });
     
     const errors = [];
     
-    for (const { name, client } of providersToTry) {
+    for (const { name, client, modelToUse } of providersToTry) {
         try {
-            console.log(`Tentando G4F com tools - provedor: ${name}, modelo: ${model}`);
+            console.log(`Tentando G4F com tools - provedor: ${name}, modelo original: ${model}, modelo usado: ${modelToUse}`);
             
             const response = await client.chat.completions.create({
-                model: model,
+                model: modelToUse,
                 messages: messages,
                 tools: tools,
                 tool_choice: "auto"
