@@ -8,16 +8,16 @@ import os
 import json
 import asyncio
 import time
-from typing import Optional, List, Dict, Any, AsyncGenerator
-from fastapi import FastAPI, HTTPException, Request
+import logging
+from typing import Optional, List, Dict, AsyncGenerator
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 import g4f
 from g4f.client import AsyncClient
+from g4f.models import ModelUtils
 from g4f.Provider import __providers__
-from g4f import models
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 app = FastAPI(
     title="GPT4Free API Server",
@@ -36,68 +36,74 @@ app.add_middleware(
 
 # Cliente assíncrono do g4f
 client = AsyncClient()
+logger = logging.getLogger("g4f-server")
+
+MODELS_CACHE_TTL = int(os.environ.get("MODELS_CACHE_TTL", "300"))
 
 # ============ CACHE DE MODELOS ============
 # Cache para evitar iterar sobre providers a cada requisição
 models_cache = {
     "data": None,
-    "timestamp": 0,
-    "ttl": 300  # 5 minutos
+    "timestamp": 0
 }
 
-def get_cached_models():
-    """Retorna modelos do cache ou None se expirado"""
+def _cached_models():
     if models_cache["data"] is None:
         return None
-    if time.time() - models_cache["timestamp"] > models_cache["ttl"]:
+    if time.time() - models_cache["timestamp"] > MODELS_CACHE_TTL:
         return None
     return models_cache["data"]
 
-def set_cached_models(data):
-    """Salva modelos no cache"""
-    models_cache["data"] = data
+
+def _set_cache(payload):
+    models_cache["data"] = payload
     models_cache["timestamp"] = time.time()
 
 
-def _find_provider_by_name(name: str):
-    """Retorna o objeto provider cujo __name__ bate com `name` (case-insensitive) ou None."""
+def _find_provider_by_name(name: Optional[str]):
     if not name:
         return None
-    for p in __providers__:
+    for provider in __providers__:
         try:
-            if p.__name__.lower() == name.lower():
-                return p
+            if provider.__name__.lower() == name.lower():
+                return provider
         except Exception:
             continue
     return None
 
 
-def normalize_model_and_maybe_provider(model: Optional[str]):
-    """Normaliza uma string de modelo que pode vir no formato 'provider:model'.
-
-    Retorna uma tupla (provider_obj_or_None, model_or_None).
-    - Se `model` for None ou 'auto' retorna (None, None).
-    - Se contiver ':' tenta separar provider e modelo.
-    - Caso contrário retorna (None, model).
-    """
+def _normalize_model_and_provider(model: Optional[str]):
     if not model or model == "auto":
         return None, None
 
-    # Remove prefixo 'g4f:' que é apenas marcador do frontend
     if isinstance(model, str) and model.startswith("g4f:"):
-        model = model[4:]  # Remove 'g4f:'
+        model = model[4:]
         if not model or model == "auto":
             return None, None
 
     if isinstance(model, str) and ":" in model:
         prov, mdl = model.split(":", 1)
-        prov_obj = _find_provider_by_name(prov)
-        return prov_obj, mdl
+        return _find_provider_by_name(prov), mdl
 
     return None, model
 
-# Executor para chamadas síncronas com timeout
-executor = ThreadPoolExecutor(max_workers=4)
+
+def _public_providers():
+    for provider in __providers__:
+        try:
+            if provider.working and not getattr(provider, "needs_auth", False):
+                yield provider
+        except Exception:
+            continue
+
+
+def _provider_models(provider):
+    if hasattr(provider, "models") and provider.models:
+        if isinstance(provider.models, list):
+            return [str(m) for m in provider.models if m]
+        if isinstance(provider.models, dict):
+            return list(provider.models.keys())
+    return []
 
 # ============ MODELOS PYDANTIC ============
 
@@ -142,71 +148,37 @@ async def root():
 async def list_models():
     """Lista todos os modelos disponíveis de todos os providers funcionais e gratuitos"""
     try:
-        # Verifica cache primeiro
-        cached = get_cached_models()
+        cached = _cached_models()
         if cached:
             return cached
-        
-        model_list = []
-        seen_models = {}  # Para evitar duplicatas, mas guardar providers
-        
-        # Coleta modelos de todos os providers funcionais e sem autenticação
-        for provider in __providers__:
-            try:
-                if not provider.working:
+
+        seen_models: Dict[str, Dict[str, object]] = {}
+
+        for provider in _public_providers():
+            provider_name = provider.__name__
+            for model in _provider_models(provider):
+                try:
+                    if ModelUtils.get_model(model) is None:
+                        continue
+                except Exception:
                     continue
-                if getattr(provider, 'needs_auth', False):
-                    continue
-                
-                provider_name = provider.__name__
-                provider_models = []
-                
-                # Tenta obter modelos do atributo direto (rápido)
-                if hasattr(provider, 'models') and provider.models:
-                    if isinstance(provider.models, list):
-                        provider_models = provider.models
-                    elif isinstance(provider.models, dict):
-                        provider_models = list(provider.models.keys())
-                
-                # NÃO chama get_models() pois pode fazer requisição de rede
-                # e bloquear o servidor
-                
-                # Adiciona modelos ao dicionário
-                for model in provider_models:
-                    if model:
-                        model_name = str(model)
-                        if model_name not in seen_models:
-                            seen_models[model_name] = {
-                                "id": model_name,
-                                "object": "model",
-                                "type": "chat",
-                                "owned_by": "g4f",
-                                "providers": [provider_name]
-                            }
-                        else:
-                            if provider_name not in seen_models[model_name]["providers"]:
-                                seen_models[model_name]["providers"].append(provider_name)
-            except Exception as e:
-                # Ignora erros de providers individuais
-                continue
-        
-        # Converte para lista
-        model_list = list(seen_models.values())
-        
-        # Ordena por nome
-        model_list.sort(key=lambda x: x["id"].lower())
-        
-        result = {
-            "data": model_list, 
-            "object": "list",
-            "total": len(model_list)
-        }
-        
-        # Salva no cache
-        set_cached_models(result)
-        
+
+                entry = seen_models.setdefault(model, {
+                    "id": model,
+                    "object": "model",
+                    "type": "chat",
+                    "owned_by": "g4f",
+                    "providers": []
+                })
+                if provider_name not in entry["providers"]:
+                    entry["providers"].append(provider_name)
+
+        model_list = sorted(seen_models.values(), key=lambda x: x["id"].lower())
+        result = {"data": model_list, "object": "list", "total": len(model_list)}
+        _set_cache(result)
         return result
     except Exception as e:
+        logger.exception("Failed to list models")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/v1/models/all")
@@ -215,43 +187,23 @@ async def list_all_models_with_providers():
     try:
         providers_with_models = []
         all_unique_models = set()
-        
-        for provider in __providers__:
-            try:
-                if not provider.working:
-                    continue
-                if getattr(provider, 'needs_auth', False):
-                    continue
-                
-                provider_name = provider.__name__
-                provider_models = []
-                
-                # Tenta obter modelos do atributo direto (rápido)
-                if hasattr(provider, 'models') and provider.models:
-                    if isinstance(provider.models, list):
-                        provider_models = [str(m) for m in provider.models if m]
-                    elif isinstance(provider.models, dict):
-                        provider_models = list(provider.models.keys())
-                
-                # NÃO chama get_models() para evitar bloqueio
-                
-                if provider_models:
-                    for m in provider_models:
-                        all_unique_models.add(m)
-                        
-                    providers_with_models.append({
-                        "provider": provider_name,
-                        "models": sorted(provider_models),
-                        "count": len(provider_models),
-                        "url": getattr(provider, 'url', None)
-                    })
-            except Exception as e:
-                # Ignora erros de providers individuais
+
+        for provider in _public_providers():
+            provider_models = _provider_models(provider)
+            if not provider_models:
                 continue
-        
-        # Ordena por quantidade de modelos (mais modelos primeiro)
+
+            for mdl in provider_models:
+                all_unique_models.add(mdl)
+
+            providers_with_models.append({
+                "provider": provider.__name__,
+                "models": sorted(provider_models),
+                "count": len(provider_models),
+                "url": getattr(provider, "url", None)
+            })
+
         providers_with_models.sort(key=lambda x: -x["count"])
-        
         return {
             "data": providers_with_models,
             "total_providers": len(providers_with_models),
@@ -259,6 +211,7 @@ async def list_all_models_with_providers():
             "object": "list"
         }
     except Exception as e:
+        logger.exception("Failed to list providers with models")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/v1/providers")
@@ -266,38 +219,20 @@ async def list_providers():
     """Lista todos os providers disponíveis"""
     try:
         providers_list = []
-        
-        for provider in __providers__:
-            try:
-                if not provider.working:
-                    continue
-                    
-                provider_info = {
-                    "id": provider.__name__,
-                    "working": provider.working,
-                    "needs_auth": getattr(provider, 'needs_auth', False),
-                    "supports_stream": getattr(provider, 'supports_stream', True),
-                    "url": getattr(provider, 'url', None),
-                }
-                
-                # Tenta obter modelos do atributo direto apenas
-                if hasattr(provider, 'models') and provider.models:
-                    if isinstance(provider.models, list):
-                        provider_info["models"] = [str(m) for m in provider.models if m]
-                    elif isinstance(provider.models, dict):
-                        provider_info["models"] = list(provider.models.keys())
-                    else:
-                        provider_info["models"] = []
-                else:
-                    provider_info["models"] = []
-                
-                providers_list.append(provider_info)
-            except Exception as e:
-                # Ignora erros de providers individuais
-                continue
-        
+
+        for provider in _public_providers():
+            providers_list.append({
+                "id": provider.__name__,
+                "working": provider.working,
+                "needs_auth": getattr(provider, "needs_auth", False),
+                "supports_stream": getattr(provider, "supports_stream", True),
+                "url": getattr(provider, "url", None),
+                "models": _provider_models(provider)
+            })
+
         return {"data": providers_list, "object": "list"}
     except Exception as e:
+        logger.exception("Failed to list providers")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/chat/completions")
@@ -307,17 +242,26 @@ async def chat_completions(request: ChatCompletionRequest):
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
         
         # Configura provider se especificado (request.provider) ou definido no próprio model (prov:model)
-        provider = None
-        if request.provider:
-            provider = _find_provider_by_name(request.provider)
+        provider = _find_provider_by_name(request.provider)
 
-        # Normaliza model e, se houver prefixo 'prov:model', obtém também o provider
-        prov_from_model, normalized_model = normalize_model_and_maybe_provider(request.model)
+        prov_from_model, normalized_model = _normalize_model_and_provider(request.model)
         if prov_from_model and not provider:
             provider = prov_from_model
 
-        # Modelo final a ser usado pelo cliente: None para auto, ou o modelo normalizado
         model_to_use = None if (not normalized_model or normalized_model == "auto") else normalized_model
+
+        if model_to_use and ModelUtils.get_model(model_to_use) is None:
+            logger.warning("Modelo '%s' não encontrado, usando auto", model_to_use)
+            model_to_use = None
+
+        if model_to_use is None and provider is None:
+            for candidate in _public_providers():
+                if getattr(candidate, "url", None):
+                    provider = candidate
+                    logger.info("[G4F] Usando provider fallback: %s", candidate.__name__)
+                    break
+
+        logger.info("[G4F] Usando model=%s, provider=%s", model_to_use, provider.__name__ if provider else None)
         if request.stream:
             return StreamingResponse(
                 stream_chat_response(
@@ -373,6 +317,7 @@ async def chat_completions(request: ChatCompletionRequest):
             }
             
     except Exception as e:
+            logger.exception("Chat completion failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def stream_chat_response(

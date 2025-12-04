@@ -652,6 +652,72 @@ const ToolsPanel = ({ isOpen, onClose, isLight, tools, onToggleTool, swarmEnable
           {/* Built-in Tools */}
           <div>
             <h3 className={`text-sm font-semibold ${muted} uppercase tracking-wide mb-3`}>Ferramentas Integradas</h3>
+            
+            {/* Tool Presets */}
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  const allToolIds = builtInTools.map(t => t.id);
+                  onToggleTool(allToolIds);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${border} transition ${
+                  isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                }`}
+              >
+                ✨ Todas
+              </button>
+              <button
+                onClick={() => {
+                  onToggleTool(['web_search', 'web_browse', 'code_execute', 'file_read']);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${border} transition ${
+                  isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                }`}
+              >
+                🎯 Padrão
+              </button>
+              <button
+                onClick={() => {
+                  onToggleTool([]);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${border} transition ${
+                  isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                }`}
+              >
+                🚫 Nenhuma
+              </button>
+              <button
+                onClick={() => {
+                  onToggleTool(['web_search', 'web_browse', 'wikipedia']);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${border} transition ${
+                  isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                }`}
+              >
+                🌐 Web
+              </button>
+              <button
+                onClick={() => {
+                  onToggleTool(['code_execute', 'terminal', 'file_read', 'file_write']);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${border} transition ${
+                  isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                }`}
+              >
+                💻 Code
+              </button>
+              <button
+                onClick={() => {
+                  onToggleTool(['generate_image', 'generate_tool']);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${border} transition ${
+                  isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                }`}
+              >
+                🎨 Criar
+              </button>
+            </div>
+
             <div className="space-y-2">
               {builtInTools.map((tool) => (
                 <div
@@ -1008,9 +1074,14 @@ export default function ChatInterface({ user, setUser }) {
   };
 
   const toggleTool = (toolId) => {
-    setEnabledTools((prev) =>
-      prev.includes(toolId) ? prev.filter((t) => t !== toolId) : [...prev, toolId]
-    );
+    // Aceita array (preset) ou string (toggle individual)
+    if (Array.isArray(toolId)) {
+      setEnabledTools(toolId);
+    } else {
+      setEnabledTools((prev) =>
+        prev.includes(toolId) ? prev.filter((t) => t !== toolId) : [...prev, toolId]
+      );
+    }
   };
 
   const handleLogout = () => {
