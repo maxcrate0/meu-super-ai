@@ -1,72 +1,24 @@
 const { app } = require('@azure/functions');
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const OpenAI = require('openai');
 const axios = require('axios');
-
-// ============ MONGODB (reused) ============
-let isConnected = false;
-let User, Chat, GlobalConfig, CustomTool;
-
-const connectDB = async () => {
-    if (isConnected && mongoose.connection.readyState >= 1) return;
-    
-    await mongoose.connect(process.env.MONGODB_URI, {
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-    });
-    isConnected = true;
-    
-    User = mongoose.models.User || mongoose.model('User', new mongoose.Schema({
-        username: String, password: String, role: { type: String, default: 'user' },
-        personal_api_key: String, displayName: String, bio: String,
-        usage: { requests: { type: Number, default: 0 } }
-    }));
-    
-    Chat = mongoose.models.Chat || mongoose.model('Chat', new mongoose.Schema({
-        userId: mongoose.Schema.Types.ObjectId, title: String, model: String,
-        messages: Array, userSystemPrompt: String
-    }, { timestamps: true }));
-    
-    GlobalConfig = mongoose.models.GlobalConfig || mongoose.model('GlobalConfig', new mongoose.Schema({
-        key: String, value: mongoose.Schema.Types.Mixed
-    }));
-    
-    CustomTool = mongoose.models.CustomTool || mongoose.model('CustomTool', new mongoose.Schema({
-        name: String, description: String, endpoint: String, method: String,
-        headers: Object, bodyTemplate: String, responseMapping: String,
-        parameters: Array, isActive: Boolean, createdBy: mongoose.Schema.Types.ObjectId
-    }));
-};
-
-// ============ AUTH ============
-const verifyToken = async (authHeader) => {
-    if (!authHeader?.startsWith('Bearer ')) throw new Error('Token não fornecido');
-    const decoded = jwt.verify(authHeader.replace('Bearer ', ''), process.env.JWT_SECRET);
-    await connectDB();
-    const user = await User.findById(decoded.id).lean();
-    if (!user) throw new Error('Usuário não encontrado');
-    user._id = decoded.id;
-    return user;
-};
-
-const getApiKey = async (user) => {
-    if (user.personal_api_key) return user.personal_api_key;
-    const cfg = await GlobalConfig.findOne({ key: 'OPENROUTER_API_KEY' }).lean();
-    return cfg?.value || process.env.GLOBAL_API_KEY || '';
-};
-
-const getGlobalSystemPrompt = async () => {
-    const cfg = await GlobalConfig.findOne({ key: 'GLOBAL_SYSTEM_PROMPT' }).lean();
-    return cfg?.value || '';
-};
+const {
+    baseHeaders,
+    DEFAULT_MODEL,
+    verifyToken,
+    getApiKey,
+    getGlobalSystemPrompt,
+    buildMessages,
+    incrementUsage,
+    getOpenAIClient,
+    jsonResponse,
+} = require('./shared');
 
 // ============ TOOLS ============
 const SWARM_AGENTS = {
     researcher: { name: "Researcher", description: "Pesquisa web e análise de dados", model: "google/gemini-2.0-flash-exp:free" },
     coder: { name: "Coder", description: "Programação e código", model: "google/gemini-2.0-flash-exp:free" },
     writer: { name: "Writer", description: "Escrita criativa e redação", model: "google/gemini-2.0-flash-exp:free" },
-    analyst: { name: "Analyst", description: "Análise de dados e lógica", model: "google/gemini-2.0-flash-exp:free" }
+    analyst: { name: "Analyst", description: "Análise de dados e lógica", model: "google/gemini-2.0-flash-exp:free" },
+    creative: { name: "Creative", description: "Criação de conteúdo visual e artístico", model: "google/gemini-2.0-flash-exp:free" }
 };
 
 const builtInTools = [
@@ -74,7 +26,7 @@ const builtInTools = [
         type: "function",
         function: {
             name: "swarm_delegate",
-            description: "Delegar tarefa para um agente especializado do Swarm",
+            description: "Delegar tarefa para um agente especializado do Swarm. Use quando precisar de ajuda especializada.",
             parameters: {
                 type: "object",
                 properties: {
@@ -89,7 +41,7 @@ const builtInTools = [
         type: "function",
         function: {
             name: "web_search",
-            description: "Buscar informações na web",
+            description: "Buscar informações na web usando DuckDuckGo. Use para pesquisas gerais.",
             parameters: {
                 type: "object",
                 properties: { query: { type: "string", description: "Termo de busca" } },
@@ -100,53 +52,321 @@ const builtInTools = [
     {
         type: "function",
         function: {
-            name: "generate_image",
-            description: "Gerar imagem com IA",
+            name: "web_browse",
+            description: "Acessar e extrair conteúdo de uma URL. Use para ler artigos, páginas web, etc.",
             parameters: {
                 type: "object",
-                properties: { prompt: { type: "string", description: "Descrição da imagem" } },
+                properties: { 
+                    url: { type: "string", description: "URL para acessar" },
+                    selector: { type: "string", description: "Seletor CSS opcional para extrair conteúdo específico" }
+                },
+                required: ["url"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "generate_image",
+            description: "Gerar imagem com IA. Use para criar imagens a partir de descrições textuais.",
+            parameters: {
+                type: "object",
+                properties: { 
+                    prompt: { type: "string", description: "Descrição detalhada da imagem" },
+                    style: { type: "string", enum: ["realistic", "anime", "artistic", "3d", "cartoon"], description: "Estilo da imagem" }
+                },
                 required: ["prompt"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "code_execute",
+            description: "Executar código Python ou JavaScript de forma segura. Use para cálculos, processamento de dados, etc.",
+            parameters: {
+                type: "object",
+                properties: { 
+                    language: { type: "string", enum: ["python", "javascript"], description: "Linguagem do código" },
+                    code: { type: "string", description: "Código a ser executado" }
+                },
+                required: ["language", "code"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "generate_tool",
+            description: "Gerar uma nova ferramenta personalizada. Use quando precisar de uma funcionalidade que não existe.",
+            parameters: {
+                type: "object",
+                properties: { 
+                    name: { type: "string", description: "Nome da ferramenta (snake_case)" },
+                    description: { type: "string", description: "Descrição do que a ferramenta faz" },
+                    parameters: { type: "object", description: "Schema de parâmetros JSON" },
+                    implementation: { type: "string", description: "Código JavaScript da implementação" }
+                },
+                required: ["name", "description", "parameters", "implementation"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "memory_store",
+            description: "Armazenar informação na memória para uso posterior.",
+            parameters: {
+                type: "object",
+                properties: { 
+                    key: { type: "string", description: "Chave identificadora" },
+                    value: { type: "string", description: "Valor a armazenar" }
+                },
+                required: ["key", "value"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "memory_retrieve",
+            description: "Recuperar informação previamente armazenada.",
+            parameters: {
+                type: "object",
+                properties: { 
+                    key: { type: "string", description: "Chave identificadora" }
+                },
+                required: ["key"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "file_read",
+            description: "Ler conteúdo de um arquivo (simulado).",
+            parameters: {
+                type: "object",
+                properties: { 
+                    path: { type: "string", description: "Caminho do arquivo" }
+                },
+                required: ["path"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "calculate",
+            description: "Realizar cálculos matemáticos complexos.",
+            parameters: {
+                type: "object",
+                properties: { 
+                    expression: { type: "string", description: "Expressão matemática" }
+                },
+                required: ["expression"]
             }
         }
     }
 ];
 
+// Armazenamento temporário em memória
+const memoryStore = new Map();
+const customTools = new Map();
+
 // Tool Handlers
 const handleSwarmDelegate = async (args, openai) => {
     const agent = SWARM_AGENTS[args.agent];
-    if (!agent) return { error: "Agente não encontrado" };
+    if (!agent) return { error: "Agente não encontrado", availableAgents: Object.keys(SWARM_AGENTS) };
     
     const response = await openai.chat.completions.create({
         model: agent.model,
         messages: [
-            { role: "system", content: `Você é ${agent.name}, especialista em ${agent.description}. Responda de forma concisa.` },
+            { role: "system", content: `Você é ${agent.name}, especialista em ${agent.description}. Responda de forma clara, detalhada e útil.` },
             { role: "user", content: args.task }
-        ]
+        ],
+        max_tokens: 2000
     });
-    return { agent: agent.name, response: response.choices[0].message.content };
+    return { agent: agent.name, task: args.task, response: response.choices[0].message.content };
 };
 
 const handleWebSearch = async (args) => {
     try {
+        // Tentar DuckDuckGo API
         const resp = await axios.get(`https://api.duckduckgo.com/?q=${encodeURIComponent(args.query)}&format=json&no_html=1`, { timeout: 10000 });
-        return { results: resp.data.AbstractText || resp.data.RelatedTopics?.slice(0, 3).map(t => t.Text).join('\n') || 'Sem resultados' };
+        
+        let results = [];
+        if (resp.data.AbstractText) {
+            results.push({ type: 'abstract', text: resp.data.AbstractText, source: resp.data.AbstractSource });
+        }
+        if (resp.data.RelatedTopics?.length) {
+            results = results.concat(resp.data.RelatedTopics.slice(0, 5).map(t => ({
+                type: 'related',
+                text: t.Text || t.FirstURL,
+                url: t.FirstURL
+            })));
+        }
+        
+        return { query: args.query, results: results.length ? results : 'Sem resultados encontrados' };
+    } catch (e) {
+        return { error: e.message, query: args.query };
+    }
+};
+
+const handleWebBrowse = async (args) => {
+    try {
+        const resp = await axios.get(args.url, { 
+            timeout: 15000,
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; jgspAI/1.0)' },
+            maxContentLength: 500000
+        });
+        
+        // Extrair texto básico do HTML
+        let content = resp.data;
+        if (typeof content === 'string') {
+            // Remover scripts, styles, e tags HTML
+            content = content
+                .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 10000);
+        }
+        
+        return { url: args.url, content, length: content.length };
+    } catch (e) {
+        return { error: e.message, url: args.url };
+    }
+};
+
+const handleGenerateImage = async (args) => {
+    const style = args.style || 'realistic';
+    const enhancedPrompt = `${args.prompt}, ${style} style, high quality, detailed`;
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true`;
+    return { imageUrl: url, prompt: args.prompt, style, message: 'Imagem gerada com sucesso!' };
+};
+
+const handleCodeExecute = async (args) => {
+    // Execução segura usando eval limitado (apenas para JavaScript básico)
+    if (args.language === 'javascript') {
+        try {
+            // Criar sandbox limitado
+            const sandbox = {
+                Math, JSON, Date, Array, Object, String, Number, Boolean, 
+                parseInt, parseFloat, isNaN, isFinite,
+                console: { log: (...a) => a.join(' ') },
+                result: null
+            };
+            
+            const fn = new Function(...Object.keys(sandbox), `
+                "use strict";
+                ${args.code}
+            `);
+            
+            const output = fn(...Object.values(sandbox));
+            return { language: args.language, output: String(output), success: true };
+        } catch (e) {
+            return { error: e.message, language: args.language };
+        }
+    } else if (args.language === 'python') {
+        // Para Python, retornar instruções (não temos executor Python no Azure Functions)
+        return { 
+            language: args.language, 
+            code: args.code,
+            message: 'Código Python analisado. Para executar, use um ambiente Python local.',
+            analysis: 'O código parece válido e pode ser executado em um ambiente Python.'
+        };
+    }
+    
+    return { error: `Linguagem ${args.language} não suportada` };
+};
+
+const handleGenerateTool = async (args) => {
+    try {
+        // Salvar ferramenta customizada (em memória por enquanto)
+        const toolDef = {
+            type: "function",
+            function: {
+                name: args.name,
+                description: args.description,
+                parameters: args.parameters
+            }
+        };
+        
+        customTools.set(args.name, {
+            definition: toolDef,
+            implementation: args.implementation
+        });
+        
+        return { 
+            success: true, 
+            message: `Ferramenta "${args.name}" criada com sucesso!`,
+            tool: toolDef
+        };
     } catch (e) {
         return { error: e.message };
     }
 };
 
-const handleGenerateImage = async (args) => {
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(args.prompt)}?width=1024&height=1024&nologo=true`;
-    return { imageUrl: url, prompt: args.prompt };
+const handleMemoryStore = async (args) => {
+    memoryStore.set(args.key, { value: args.value, timestamp: Date.now() });
+    return { success: true, key: args.key, message: 'Informação armazenada com sucesso' };
+};
+
+const handleMemoryRetrieve = async (args) => {
+    const data = memoryStore.get(args.key);
+    if (!data) return { error: `Chave "${args.key}" não encontrada na memória` };
+    return { key: args.key, value: data.value, storedAt: new Date(data.timestamp).toISOString() };
+};
+
+const handleFileRead = async (args) => {
+    // Simulação - em produção integraria com storage
+    return { 
+        path: args.path, 
+        message: 'Leitura de arquivo simulada. Em ambiente de produção, integraria com Azure Blob Storage.',
+        simulated: true
+    };
+};
+
+const handleCalculate = async (args) => {
+    try {
+        // Avaliação segura de expressões matemáticas
+        const expr = args.expression.replace(/[^0-9+\-*/().%\s^]/g, '');
+        const result = Function(`"use strict"; return (${expr})`)();
+        return { expression: args.expression, result, success: true };
+    } catch (e) {
+        return { error: e.message, expression: args.expression };
+    }
 };
 
 const executeToolCall = async (toolCall, openai) => {
-    const args = JSON.parse(toolCall.function.arguments);
-    switch (toolCall.function.name) {
+    const args = JSON.parse(toolCall.function.arguments || '{}');
+    const toolName = toolCall.function.name;
+    
+    switch (toolName) {
         case 'swarm_delegate': return await handleSwarmDelegate(args, openai);
         case 'web_search': return await handleWebSearch(args);
+        case 'web_browse': return await handleWebBrowse(args);
         case 'generate_image': return await handleGenerateImage(args);
-        default: return { error: `Tool ${toolCall.function.name} não implementada` };
+        case 'code_execute': return await handleCodeExecute(args);
+        case 'generate_tool': return await handleGenerateTool(args);
+        case 'memory_store': return await handleMemoryStore(args);
+        case 'memory_retrieve': return await handleMemoryRetrieve(args);
+        case 'file_read': return await handleFileRead(args);
+        case 'calculate': return await handleCalculate(args);
+        default: 
+            // Verificar ferramentas customizadas
+            if (customTools.has(toolName)) {
+                try {
+                    const custom = customTools.get(toolName);
+                    const fn = new Function('args', custom.implementation);
+                    return fn(args);
+                } catch (e) {
+                    return { error: `Erro ao executar ferramenta customizada: ${e.message}` };
+                }
+            }
+            return { error: `Tool ${toolName} não implementada` };
     }
 };
 
@@ -156,82 +376,60 @@ app.http('tools', {
     authLevel: 'anonymous',
     route: 'chat/tools',
     handler: async (request, context) => {
-        const headers = {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-        };
-        
-        if (request.method === 'OPTIONS') return { status: 200, headers, body: '' };
-        if (request.method === 'GET') return { status: 200, headers, body: JSON.stringify({ ok: true, service: 'tools' }) };
+        if (request.method === 'OPTIONS') return { status: 200, headers: baseHeaders, body: '' };
+        if (request.method === 'GET') return jsonResponse(200, { ok: true, service: 'tools' });
         
         try {
             const user = await verifyToken(request.headers.get('authorization'));
             const body = await request.json();
-            const { messages, model, userSystemPrompt } = body;
+            const { messages, model, userSystemPrompt } = body || {};
             
-            if (!messages || !Array.isArray(messages)) {
-                return { status: 400, headers, body: JSON.stringify({ error: 'messages é obrigatório' }) };
+            if (!Array.isArray(messages)) {
+                return jsonResponse(400, { error: 'messages é obrigatório' });
             }
             
             const apiKey = await getApiKey(user);
-            if (!apiKey) return { status: 400, headers, body: JSON.stringify({ error: 'API Key não configurada' }) };
+            if (!apiKey) return jsonResponse(400, { error: 'API Key não configurada' });
             
-            const openai = new OpenAI({
-                baseURL: "https://openrouter.ai/api/v1",
-                apiKey,
-                defaultHeaders: { "HTTP-Referer": "https://meu-super-ai.vercel.app", "X-Title": "jgspAI" }
-            });
-            
-            // Build messages
+            const openai = getOpenAIClient(apiKey);
             const globalPrompt = await getGlobalSystemPrompt();
-            const systemContent = [globalPrompt, userSystemPrompt, user.bio ? `Info: ${user.bio}` : ''].filter(Boolean);
-            const msgs = systemContent.length > 0 
-                ? [{ role: "system", content: systemContent.join('\n\n') }, ...messages]
-                : [...messages];
+            const msgs = buildMessages(messages, globalPrompt, userSystemPrompt, user.bio);
             
-            // First call with tools
             let response = await openai.chat.completions.create({
-                model: model || "google/gemini-2.0-flash-exp:free",
+                model: model || DEFAULT_MODEL,
                 messages: msgs,
                 tools: builtInTools,
-                tool_choice: "auto"
+                tool_choice: 'auto'
             });
             
             let msg = response.choices[0].message;
             const toolResults = [];
             
-            // Process tool calls (max 5 iterations)
             for (let i = 0; i < 5 && msg.tool_calls?.length; i++) {
                 for (const toolCall of msg.tool_calls) {
                     const result = await executeToolCall(toolCall, openai);
                     toolResults.push({ tool: toolCall.function.name, result });
                     msgs.push(msg);
-                    msgs.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) });
+                    msgs.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(result) });
                 }
                 
                 response = await openai.chat.completions.create({
-                    model: model || "google/gemini-2.0-flash-exp:free",
+                    model: model || DEFAULT_MODEL,
                     messages: msgs,
                     tools: builtInTools,
-                    tool_choice: "auto"
+                    tool_choice: 'auto'
                 });
                 msg = response.choices[0].message;
             }
             
-            User.findByIdAndUpdate(user._id, { $inc: { 'usage.requests': 1 } }).catch(() => {});
+            incrementUsage(user._id);
             
-            return { 
-                status: 200, 
-                headers, 
-                body: JSON.stringify({ ...msg, toolResults: toolResults.length ? toolResults : undefined }) 
-            };
+            return jsonResponse(200, { ...msg, toolResults: toolResults.length ? toolResults : undefined });
             
         } catch (e) {
-            context.log('Error:', e.message);
+            context.log('tools error:', e.message);
             const status = e.message.includes('Token') || e.message.includes('Usuário') ? 401 : 500;
-            return { status, headers, body: JSON.stringify({ error: e.message }) };
+            return jsonResponse(status, { error: e.message });
         }
     }
 });

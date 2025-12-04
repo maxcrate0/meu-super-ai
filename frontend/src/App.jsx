@@ -8,7 +8,6 @@ import AdminDashboard from './pages/AdminDashboard';
 import Homepage from './pages/Homepage';
 import ChatHome from './pages/ChatHome';
 import Docs from './pages/Docs';
-import ContentEditor from './pages/ContentEditor';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
 
@@ -47,7 +46,6 @@ function AppContent() {
         {/* Páginas protegidas */}
         <Route path="/chat" element={user ? <ChatInterface user={user} setUser={setUser} /> : <Navigate to="/login" />} />
         <Route path="/admin" element={user?.role === 'admin' ? <AdminDashboard user={user} /> : <Navigate to="/" />} />
-        <Route path="/admin/content" element={user?.role === 'admin' ? <ContentEditor /> : <Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
   );

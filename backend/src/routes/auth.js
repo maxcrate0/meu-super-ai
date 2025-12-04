@@ -8,8 +8,7 @@ const router = express.Router();
 
 function sign(user) {
   const payload = { id: user._id, role: user.role };
-  const token = jwt.sign(payload, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
-  return token;
+  return jwt.sign(payload, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
 }
 
 router.post('/register', async (req, res) => {
@@ -17,8 +16,8 @@ router.post('/register', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Informe usuário e senha' });
 
-    const existing = await User.findOne({ username });
-    if (existing) return res.status(400).json({ error: 'Usuário já existe' });
+    const exists = await User.findOne({ username });
+    if (exists) return res.status(400).json({ error: 'Usuário já existe' });
 
     const hash = await bcrypt.hash(password, 10);
     const isFirstUser = (await User.countDocuments()) === 0;

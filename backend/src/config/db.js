@@ -1,11 +1,10 @@
 const mongoose = require('mongoose');
-
-const DEFAULT_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/meu-super-ai';
+const config = require('./env');
 
 async function connectDB() {
   if (mongoose.connection.readyState === 1) return mongoose.connection;
   mongoose.set('strictQuery', true);
-  await mongoose.connect(DEFAULT_URI, {
+  await mongoose.connect(config.mongoUri, {
     autoIndex: true,
   });
   return mongoose.connection;

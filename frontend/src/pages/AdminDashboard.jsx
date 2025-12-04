@@ -1,405 +1,366 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { 
-  User, MessageSquare, Wrench, X, Trash2, Key, Users, 
-  BarChart3, RefreshCw, ChevronLeft, Settings, AlertTriangle, Cpu,
-  Send, Mail, FileText, Layout, Database, Zap, Eye, EyeOff, TrendingUp, Trophy,
-  Menu, ChevronDown, ChevronRight, Shield, Activity
-} from 'lucide-react';
-import { useLanguage } from '../i18n/LanguageContext';
+import { Activity, Database, Eye, EyeOff, Key, MessageSquare, RefreshCw, Shield, Users as UsersIcon } from 'lucide-react';
 
 const RAW_URL = import.meta.env.VITE_API_URL || 'https://gemini-api-13003.azurewebsites.net/api';
 const API_URL = RAW_URL.endsWith('/') ? RAW_URL.slice(0, -1) : RAW_URL;
 
-export default function AdminDashboard() {
-  // i18n
-  const { texts } = useLanguage();
-  const t = texts.admin;
-  
-  const [users, setUsers] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [userDetails, setUserDetails] = useState(null);
-  const [viewingChat, setViewingChat] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [stats, setStats] = useState(null);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [globalApiKey, setGlobalApiKey] = useState('');
-  const [groqApiKey, setGroqApiKey] = useState('');
-  const [apiKeyConfig, setApiKeyConfig] = useState(null);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [models, setModels] = useState([]);
-  const [defaultModels, setDefaultModels] = useState({
-    text: '',
-    image: '',
-    audio: '',
-    video: ''
-  });
-  const [activeModelTab, setActiveModelTab] = useState('text');
-  const [selectedModelProvider, setSelectedModelProvider] = useState('openrouter');
-  const [showModelModal, setShowModelModal] = useState(false);
-  const [savingModel, setSavingModel] = useState(false);
-  const [showMessageModal, setShowMessageModal] = useState(false);
-  const [adminMessage, setAdminMessage] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
-  const [showSystemPromptModal, setShowSystemPromptModal] = useState(false);
-  const [globalSystemPrompt, setGlobalSystemPrompt] = useState('');
-  const [savingSystemPrompt, setSavingSystemPrompt] = useState(false);
-  const [activeApiTab, setActiveApiTab] = useState('openrouter');
-  
-  // Estados do painel Groq
-  const [showGroqPanel, setShowGroqPanel] = useState(false);
-  const [groqModels, setGroqModels] = useState([]);
-  const [groqUsage, setGroqUsage] = useState([]);
-  const [groqUserRankings, setGroqUserRankings] = useState([]);
-  const [groqModelRankings, setGroqModelRankings] = useState([]);
-  const [loadingGroq, setLoadingGroq] = useState(false);
-  const [groqActiveTab, setGroqActiveTab] = useState('models');
-  
-  // Estados do painel de gerenciamento global de modelos
-  const [showModelsPanel, setShowModelsPanel] = useState(false);
-  const [allModelsStats, setAllModelsStats] = useState(null);
-  const [hiddenModels, setHiddenModels] = useState([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [modelsActiveTab, setModelsActiveTab] = useState('stats');
-  const [modelsFilter, setModelsFilter] = useState('');
-  const [providerFilter, setProviderFilter] = useState('all');
-  
-  // Estados do teste de modelos
-  const [testingModels, setTestingModels] = useState(false);
-  const [testResults, setTestResults] = useState(null);
-  const [showTestResults, setShowTestResults] = useState(false);
-  
+const client = axios.create({ baseURL: API_URL, timeout: 30000 });
+client.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
-  useEffect(() => {
-    loadUsers();
-    loadStats();
-    loadApiKeyConfig();
-    loadModels();
-  }, []);
+const StatCard = ({ icon: Icon, label, value, hint }) => (
+  <div className="flex items-center gap-3 p-4 rounded-xl border border-indigo-500/20 bg-gray-900/50 text-white">
+    <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-200">
+      <Icon size={18} />
+    </div>
+    <div>
+      <p className="text-sm text-gray-400">{label}</p>
+      <p className="text-2xl font-semibold">{value ?? '–'}</p>
+      {hint && <p className="text-xs text-gray-500 mt-1">{hint}</p>}
+    </div>
+  </div>
+);
 
-  // Carregar dados do Groq quando o painel for aberto
-  const loadGroqData = async () => {
-    setLoadingGroq(true);
-    try {
-      const [modelsRes, statsRes] = await Promise.all([
-        axios.get(API_URL + '/admin/groq/models', { headers: { Authorization: 'Bearer ' + token } }),
-        axios.get(API_URL + '/admin/groq/stats', { headers: { Authorization: 'Bearer ' + token } })
-      ]);
-      
-      // Modelos já vêm com limites do backend
-      setGroqModels(modelsRes.data || []);
-      
-      // Estatísticas
-      const stats = statsRes.data || {};
-      setGroqUsage(stats.modelUsage || []);
-      setGroqUserRankings(stats.topUsersGeneral || []);
-      setGroqModelRankings(stats.modelUsage || []);
-    } catch (err) {
-      console.error('Erro ao carregar dados Groq:', err);
-    }
-    setLoadingGroq(false);
-  };
+const ModelRow = ({ model, onToggle, disabled }) => {
+  const hidden = model.hidden;
+  return (
+    <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-800 bg-gray-900/60">
+      <div>
+        <p className="text-sm font-medium text-white">{model.name || model.id}</p>
+        <p className="text-xs text-gray-400">{model.provider}</p>
+      </div>
+      <button
+        onClick={() => onToggle(model)}
+        disabled={disabled}
+        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm transition ${
+          hidden
+            ? 'border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
+            : 'border-gray-700 text-gray-200 hover:border-indigo-500'
+        } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+      >
+        {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+        {hidden ? 'Reativar' : 'Ocultar'}
+      </button>
+    </div>
+  );
+};
 
-  const toggleGroqModelVisibility = async (modelId, hidden) => {
-    try {
-      await axios.post(
-        API_URL + '/admin/groq/toggle-visibility',
-        { modelId, hidden: !hidden },
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-      // Atualiza localmente
-      setGroqModels(prev => prev.map(m => 
-        m.id === modelId ? { ...m, hidden: !hidden } : m
-      ));
-    } catch (err) {
-      alert('Erro ao alterar visibilidade: ' + (err.response?.data?.error || err.message));
-    }
-  };
+const formatDate = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString();
+};
 
-  // Carregar dados do painel global de modelos
-  const loadModelsData = async () => {
-    setLoadingModels(true);
-    try {
-      const [statsRes, hiddenRes, testRes] = await Promise.all([
-        axios.get(API_URL + '/admin/models/stats?period=7d', { headers: { Authorization: 'Bearer ' + token } }),
-        axios.get(API_URL + '/admin/models/hidden', { headers: { Authorization: 'Bearer ' + token } }),
-        axios.get(API_URL + '/admin/models/test-results', { headers: { Authorization: 'Bearer ' + token } }).catch(() => ({ data: null }))
-      ]);
-      
-      setAllModelsStats(statsRes.data || {});
-      setHiddenModels(hiddenRes.data || []);
-      setTestResults(testRes.data);
-    } catch (err) {
-      console.error('Erro ao carregar dados de modelos:', err);
-    }
-    setLoadingModels(false);
-  };
+export default function AdminDashboard() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [stats, setStats] = useState(null);
+  const [modelStats, setModelStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userChats, setUserChats] = useState([]);
+  const [models, setModels] = useState([]);
+  const [hiddenModels, setHiddenModels] = useState([]);
+  const [apiKeys, setApiKeys] = useState({});
+  const [savingKeys, setSavingKeys] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [newKey, setNewKey] = useState({ key: '', value: '' });
 
-  // Toggle visibilidade de modelo (global)
-  const toggleModelVisibility = async (modelId, provider, currentlyHidden) => {
-    try {
-      await axios.post(
-        API_URL + '/admin/models/toggle-visibility',
-        { modelId, provider, hidden: !currentlyHidden },
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-      
-      const modelKey = `${provider}:${modelId}`;
-      if (currentlyHidden) {
-        setHiddenModels(prev => prev.filter(k => k !== modelKey));
-      } else {
-        setHiddenModels(prev => [...prev, modelKey]);
-      }
-    } catch (err) {
-      alert('Erro ao alterar visibilidade: ' + (err.response?.data?.error || err.message));
-    }
-  };
-
-  // Reativar modelo (remover da lista de ocultos)
-  const unhideModel = async (modelKey) => {
-    try {
-      await axios.post(
-        API_URL + '/admin/models/unhide',
-        { modelKey },
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-      setHiddenModels(prev => prev.filter(k => k !== modelKey));
-    } catch (err) {
-      alert('Erro ao reativar modelo: ' + (err.response?.data?.error || err.message));
-    }
-  };
-
-  // Iniciar teste de todos os modelos
-  const startModelTest = async () => {
-    if (testingModels) return;
-    
-    if (!confirm('Isso vai testar TODOS os modelos e pode demorar alguns minutos. Modelos que não funcionarem serão ocultados automaticamente. Continuar?')) {
-      return;
-    }
-    
-    setTestingModels(true);
-    try {
-      await axios.post(
-        API_URL + '/admin/models/test-all',
-        {},
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-      
-      alert('Teste iniciado! Os resultados aparecerão em alguns minutos. Você pode verificar na aba "Teste de Modelos".');
-      
-      // Verificar resultados periodicamente
-      const checkResults = async () => {
-        try {
-          const res = await axios.get(API_URL + '/admin/models/test-results', {
-            headers: { Authorization: 'Bearer ' + token }
-          });
-          if (res.data && new Date(res.data.timestamp) > new Date(Date.now() - 60000)) {
-            setTestResults(res.data);
-            setTestingModels(false);
-            loadModelsData(); // Recarregar dados
-          } else {
-            // Continuar verificando
-            setTimeout(checkResults, 5000);
-          }
-        } catch (e) {
-          setTimeout(checkResults, 5000);
-        }
-      };
-      
-      setTimeout(checkResults, 10000); // Começar a verificar após 10s
-      
-    } catch (err) {
-      alert('Erro ao iniciar teste: ' + (err.response?.data?.error || err.message));
-      setTestingModels(false);
-    }
-  };
-
-  // Carregar resultados do último teste
-  const loadTestResults = async () => {
-    try {
-      const res = await axios.get(API_URL + '/admin/models/test-results', {
-        headers: { Authorization: 'Bearer ' + token }
-      });
-      setTestResults(res.data);
-    } catch (e) {
-      console.error('Erro ao carregar resultados do teste:', e);
-    }
-  };
-
-  const loadUsers = async () => {
+  const loadAll = async () => {
     setLoading(true);
-    setError(null);
+    setError('');
     try {
-      const res = await axios.get(API_URL + '/admin/users', { 
-        headers: { Authorization: 'Bearer ' + token } 
-      });
-      setUsers(res.data || []);
-    } catch(err) {
-      setError('Erro ao carregar usuários: ' + (err.response?.data?.error || err.message));
+      const [statsRes, modelStatsRes, usersRes, hiddenRes, openRes, g4fRes, keysRes] = await Promise.all([
+        client.get('/admin/stats'),
+        client.get('/admin/models/stats').catch(() => ({ data: null })),
+        client.get('/admin/users'),
+        client.get('/admin/models/hidden'),
+        client.get('/models'),
+        client.get('/models/g4f').catch(() => ({ data: [] })),
+        client.get('/admin/api-keys').catch(() => ({ data: {} })),
+      ]);
+
+      setStats(statsRes.data || {});
+      setModelStats(modelStatsRes.data || null);
+      setUsers(usersRes.data || []);
+      setHiddenModels(hiddenRes.data || []);
+      const openModels = (openRes.data || []).map((m) => ({ ...m, provider: m.provider || 'openrouter' }));
+      const g4fModels = (g4fRes.data || []).map((m) => ({ ...m, provider: 'g4f' }));
+      setModels([...openModels, ...g4fModels]);
+      setApiKeys(keysRes.data || {});
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Erro ao carregar dados');
     }
     setLoading(false);
   };
 
-  const loadStats = async () => {
-    try {
-      const res = await axios.get(API_URL + '/admin/stats', { 
-        headers: { Authorization: 'Bearer ' + token } 
-      });
-      setStats(res.data);
-    } catch(e) {
-      console.error('Erro ao carregar estatísticas');
-    }
-  };
+  useEffect(() => {
+    loadAll();
+  }, []);
 
-  const loadApiKeyConfig = async () => {
-    try {
-      const res = await axios.get(API_URL + '/admin/config', { 
-        headers: { Authorization: 'Bearer ' + token } 
-      });
-      setApiKeyConfig(res.data);
-      if (res.data.defaultModels) {
-        setDefaultModels(res.data.defaultModels);
-      } else if (res.data.defaultModel) {
-        // Fallback para migração
-        setDefaultModels(prev => ({ ...prev, text: res.data.defaultModel }));
-      }
-      if (res.data.globalSystemPrompt) {
-        setGlobalSystemPrompt(res.data.globalSystemPrompt);
-      }
-    } catch(e) {
-      console.error('Erro ao carregar config');
-    }
-  };
-
-  const loadModels = async () => {
-    try {
-      const [openRouterRes, g4fRes] = await Promise.all([
-        axios.get(API_URL + '/models').catch(() => ({ data: [] })),
-        axios.get(API_URL + '/models/g4f').catch(() => ({ data: [] }))
-      ]);
-
-      const openRouterModels = (openRouterRes.data || []).map(m => ({ ...m, source: 'OpenRouter', type: 'chat' }));
-      const g4fModels = (g4fRes.data || []).map(m => ({ ...m, source: 'GPT4Free' }));
-      
-      setModels([...openRouterModels, ...g4fModels]);
-    } catch(e) {
-      console.error('Erro ao carregar modelos', e);
-      // Fallback
-      setModels([
-        {id:"google/gemini-2.0-flash-exp:free", name:"Gemini 2.0 Flash", source: 'OpenRouter', type: 'chat'},
-        {id:"deepseek-v3", name:"DeepSeek V3", source: 'GPT4Free', type: 'chat'}
-      ]);
-    }
-  };
-
-  const saveDefaultModels = async () => {
-    setSavingModel(true);
-    try {
-      await axios.post(API_URL + '/admin/config/default-models', 
-        { 
-          textModel: defaultModels.text,
-          imageModel: defaultModels.image,
-          audioModel: defaultModels.audio,
-          videoModel: defaultModels.video
-        },
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-      alert('Modelos padrão salvos com sucesso!');
-      setShowModelModal(false);
-    } catch(err) {
-      alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
-    }
-    setSavingModel(false);
-  };
-
-  const saveGlobalSystemPrompt = async () => {
-    setSavingSystemPrompt(true);
-    try {
-      await axios.post(API_URL + '/admin/config/system-prompt', 
-        { systemPrompt: globalSystemPrompt },
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
-      alert('System Prompt global salvo com sucesso!');
-      setShowSystemPromptModal(false);
-    } catch(err) {
-      alert('Erro ao salvar: ' + (err.response?.data?.error || err.message));
-    }
-    setSavingSystemPrompt(false);
-  };
+  const combinedModels = useMemo(() => {
+    return models.map((m) => {
+      const key = `${m.provider}:${m.id}`;
+      return { ...m, hidden: hiddenModels.includes(key) };
+    });
+  }, [models, hiddenModels]);
 
   const selectUser = async (id) => {
-    setSelectedUser(id);
-    setViewingChat(null);
-    setShowMobileMenu(false);
+    setSelectedUserId(id);
+    setSelectedUser(null);
+    setUserChats([]);
+    if (!id) return;
     try {
-      const res = await axios.get(API_URL + '/admin/user/' + id, { 
-        headers: { Authorization: 'Bearer ' + token } 
-      });
-      setUserDetails(res.data);
-    } catch(err) {
-      alert('Erro ao carregar detalhes do usuário');
+      const [userRes, chatsRes] = await Promise.all([
+        client.get(`/admin/users/${id}`),
+        client.get(`/admin/users/${id}/chats`),
+      ]);
+      setSelectedUser(userRes.data);
+      setUserChats(chatsRes.data || []);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Erro ao carregar usuário');
     }
   };
 
-  const openChat = async (chatId) => {
+  const toggleModel = async (model) => {
+    const key = `${model.provider}:${model.id}`;
+    const currentlyHidden = hiddenModels.includes(key);
+    setModelsLoading(true);
     try {
-      const res = await axios.get(API_URL + '/admin/chat/' + chatId, { 
-        headers: { Authorization: 'Bearer ' + token } 
+      await client.post('/admin/models/toggle-visibility', {
+        modelId: model.id,
+        provider: model.provider,
+        hidden: !currentlyHidden,
       });
-      setViewingChat(res.data);
-    } catch(err) {
-      alert('Erro ao carregar chat');
-    }
-  };
-
-  const deleteChat = async (chatId) => {
-    if (!confirm('Tem certeza que deseja apagar este chat? Esta ação não pode ser desfeita.')) return;
-    try {
-      await axios.delete(API_URL + '/admin/chat/' + chatId, { 
-        headers: { Authorization: 'Bearer ' + token } 
-      });
-      setViewingChat(null);
-      // Recarrega detalhes do usuário
-      if (selectedUser) selectUser(selectedUser);
-      alert('Chat apagado com sucesso!');
-    } catch(err) {
-      alert('Erro ao apagar chat: ' + (err.response?.data?.error || err.message));
-    }
-  };
-
-  const deleteTool = async (toolId, toolName) => {
-    if (!confirm(`Tem certeza que deseja apagar a ferramenta "${toolName}"?`)) return;
-    try {
-      await axios.delete(API_URL + '/admin/tool/' + toolId, { 
-        headers: { Authorization: 'Bearer ' + token } 
-      });
-      // Recarrega detalhes do usuário
-      if (selectedUser) selectUser(selectedUser);
-      alert('Ferramenta apagada com sucesso!');
-    } catch(err) {
-      alert('Erro ao apagar ferramenta: ' + (err.response?.data?.error || err.message));
-    }
-  };
-
-  const sendAdminMessage = async () => {
-    if (!adminMessage.trim() || !selectedUser) return;
-    setSendingMessage(true);
-    try {
-      await axios.post(API_URL + '/admin/user/' + selectedUser + '/message', 
-        { message: adminMessage },
-        { headers: { Authorization: 'Bearer ' + token } }
+      setHiddenModels((prev) =>
+        currentlyHidden ? prev.filter((k) => k !== key) : [...prev, key]
       );
-      alert('Mensagem enviada com sucesso! O usuário verá quando abrir o site.');
-      setAdminMessage('');
-      setShowMessageModal(false);
-    } catch(err) {
-      alert('Erro ao enviar: ' + (err.response?.data?.error || err.message));
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Erro ao atualizar modelo');
     }
-    setSendingMessage(false);
+    setModelsLoading(false);
   };
+
+  const unhideModel = async (key) => {
+    setModelsLoading(true);
+    try {
+      await client.post('/admin/models/unhide', { modelKey: key });
+      setHiddenModels((prev) => prev.filter((k) => k !== key));
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Erro ao reativar modelo');
+    }
+    setModelsLoading(false);
+  };
+
+  const saveKeys = async () => {
+    setSavingKeys(true);
+    try {
+      await client.post('/admin/api-keys', apiKeys || {});
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Erro ao salvar chaves');
+    }
+    setSavingKeys(false);
+  };
+
+  const addKey = () => {
+    if (!newKey.key.trim()) return;
+    setApiKeys((prev) => ({ ...prev, [newKey.key.trim()]: newKey.value }));
+    setNewKey({ key: '', value: '' });
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
+        <div className="flex items-center gap-3 text-gray-300">
+          <RefreshCw className="animate-spin" size={18} />
+          <span>Carregando painel...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Shield size={20} className="text-indigo-400" />
+          <div>
+            <p className="text-xs text-gray-400">Painel Administrativo</p>
+            <h1 className="text-xl font-semibold">jgspAI</h1>
+          </div>
+        </div>
+        <button
+          onClick={loadAll}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-gray-700 hover:border-indigo-500 text-sm"
+        >
+          <RefreshCw size={16} /> Atualizar
+        </button>
+      </header>
+
+      {error && (
+        <div className="mx-6 mt-4 p-3 rounded-lg border border-red-700/60 bg-red-900/20 text-red-200 text-sm">
+          {error}
+        </div>
+      )}
+
+      <main className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+        <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={UsersIcon} label="Usuários" value={stats?.users} />
+          <StatCard icon={MessageSquare} label="Chats" value={stats?.chats} />
+          <StatCard icon={Activity} label="Requisições" value={stats?.usages} />
+          <StatCard icon={Database} label="Erros de modelo" value={modelStats?.errors} hint="últimos registros" />
+        </section>
+
+        <section className="grid lg:grid-cols-2 gap-4">
+          <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold flex items-center gap-2"><UsersIcon size={18} /> Usuários</h2>
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+              {users.map((u) => (
+                <button
+                  key={u._id}
+                  onClick={() => selectUser(u._id)}
+                  className={`w-full text-left p-3 rounded-lg border ${
+                    selectedUserId === u._id ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-gray-800 bg-gray-900'
+                  } hover:border-indigo-500/50 transition`}
+                >
+                  <p className="text-sm font-medium">{u.username}</p>
+                  <p className="text-xs text-gray-400">{u.role} • {formatDate(u.createdAt)}</p>
+                </button>
+              ))}
+              {users.length === 0 && <p className="text-sm text-gray-400">Nenhum usuário cadastrado.</p>}
+            </div>
+          </div>
+
+          <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold flex items-center gap-2"><Shield size={18} /> Detalhes</h2>
+            </div>
+            {selectedUser ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">{selectedUser.username}</p>
+                    <p className="text-xs text-gray-400">{selectedUser.role}</p>
+                  </div>
+                  <span className="text-xs text-gray-400">desde {formatDate(selectedUser.createdAt)}</span>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 mb-1">Chats recentes</p>
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {userChats.map((c) => (
+                      <div key={c._id} className="p-3 rounded-lg border border-gray-800 bg-gray-950/60">
+                        <p className="text-sm font-medium">{c.title || 'Sem título'}</p>
+                        <p className="text-xs text-gray-500">{formatDate(c.updatedAt)}</p>
+                      </div>
+                    ))}
+                    {userChats.length === 0 && (
+                      <p className="text-sm text-gray-400">Nenhum chat para este usuário.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">Selecione um usuário para ver detalhes.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="grid lg:grid-cols-2 gap-4">
+          <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2"><Activity size={18} /> Modelos</h2>
+              <span className="text-xs text-gray-400">Clique para alternar</span>
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+              {combinedModels.map((m) => (
+                <ModelRow key={`${m.provider}:${m.id}`} model={m} onToggle={toggleModel} disabled={modelsLoading} />
+              ))}
+              {combinedModels.length === 0 && <p className="text-sm text-gray-400">Nenhum modelo cadastrado.</p>}
+            </div>
+            {hiddenModels.length > 0 && (
+              <div className="text-xs text-gray-400">
+                <p className="mb-1">Modelos ocultos:</p>
+                <div className="flex flex-wrap gap-2">
+                  {hiddenModels.map((key) => (
+                    <button
+                      key={key}
+                      onClick={() => unhideModel(key)}
+                      className="px-2 py-1 rounded-md border border-gray-700 hover:border-emerald-400 text-gray-200"
+                      disabled={modelsLoading}
+                    >
+                      {key}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 border border-gray-800 rounded-xl bg-gray-900/50 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2"><Key size={18} /> Chaves e Config</h2>
+              <button
+                onClick={saveKeys}
+                disabled={savingKeys}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-gray-700 hover:border-indigo-500 text-sm"
+              >
+                {savingKeys && <RefreshCw size={14} className="animate-spin" />} Salvar
+              </button>
+            </div>
+            <div className="space-y-2">
+              {Object.entries(apiKeys || {}).map(([k, v]) => (
+                <div key={k} className="flex items-center gap-2">
+                  <input
+                    value={k}
+                    disabled
+                    className="w-40 bg-gray-950 border border-gray-800 rounded-md px-3 py-2 text-sm text-gray-300"
+                  />
+                  <input
+                    value={v}
+                    onChange={(e) => setApiKeys((prev) => ({ ...prev, [k]: e.target.value }))}
+                    className="flex-1 bg-gray-950 border border-gray-800 rounded-md px-3 py-2 text-sm text-gray-200"
+                    placeholder="Valor"
+                  />
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <input
+                  value={newKey.key}
+                  onChange={(e) => setNewKey((prev) => ({ ...prev, key: e.target.value }))}
+                  className="w-40 bg-gray-950 border border-gray-800 rounded-md px-3 py-2 text-sm text-gray-200"
+                  placeholder="NOME_VARIAVEL"
+                />
+                <input
+                  value={newKey.value}
+                  onChange={(e) => setNewKey((prev) => ({ ...prev, value: e.target.value }))}
+                  className="flex-1 bg-gray-950 border border-gray-800 rounded-md px-3 py-2 text-sm text-gray-200"
+                  placeholder="Valor"
+                />
+                <button
+                  onClick={addKey}
+                  className="px-3 py-2 rounded-md border border-gray-700 hover:border-indigo-500 text-sm"
+                >
+                  Adicionar
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">Use para armazenar OPENROUTER_API_KEY, G4F_API_URL e outras chaves do backend.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
 
   const clearAdminMessage = async (userId) => {
     try {
@@ -620,8 +581,8 @@ export default function AdminDashboard() {
         </div>
 
         <div className="p-3 border-t border-[#2a2a2a]">
-          <Link to="/" className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm p-2 rounded-lg hover:bg-[#1f1f1f]">
-            <ChevronLeft size={16}/> {texts.docs.backToHome}
+          <Link to="/chat" className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm p-2 rounded-lg hover:bg-[#1f1f1f]">
+            <ChevronLeft size={16}/> Voltar ao Chat
           </Link>
         </div>
       </div>

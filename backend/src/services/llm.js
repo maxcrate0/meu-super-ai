@@ -1,49 +1,76 @@
 const OpenAI = require('openai');
+const config = require('../config/env');
 
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'google/gemini-2.0-flash-exp:free';
-const OPENROUTER_BASE = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-const G4F_BASE = process.env.G4F_API_URL ? `${process.env.G4F_API_URL.replace(/\/$/, '')}/v1` : null;
+const DEFAULT_MODEL = config.defaultModel;
+const OPENROUTER_BASE = config.openRouter.baseUrl;
+const OPENROUTER_API_KEY = config.openRouter.apiKey;
+const OPENROUTER_HEADERS = {
+  'HTTP-Referer': config.openRouter.referer,
+  'X-Title': 'Meu Super AI',
+};
 
-function buildClient(baseURL, apiKey, extraHeaders = {}) {
-  return new OpenAI({
-    baseURL,
-    apiKey,
-    defaultHeaders: extraHeaders,
-  });
+const G4F_BASE = config.g4f.baseUrl ? `${config.g4f.baseUrl.replace(/\/$/, '')}/v1` : null;
+
+function isG4FModel(model) {
+  if (!model) return true;
+  return model.startsWith('gpt-') || model.startsWith('g4f:');
 }
 
-function pickProvider(model) {
-  if (G4F_BASE && model?.startsWith('gpt')) {
-    return { provider: 'g4f', baseURL: G4F_BASE, apiKey: 'not-needed', headers: {} };
+async function callOpenRouter(model, messages, temperature) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error('OPENROUTER_API_KEY ausente');
   }
-  return {
-    provider: 'openrouter',
-    baseURL: OPENROUTER_BASE,
-    apiKey: process.env.OPENROUTER_API_KEY,
-    headers: {
-      'HTTP-Referer': process.env.OPENROUTER_REFERER || 'https://jgsp.me',
-      'X-Title': 'Meu Super AI',
-    },
+
+  const client = new OpenAI({ baseURL: OPENROUTER_BASE, apiKey: OPENROUTER_API_KEY, defaultHeaders: OPENROUTER_HEADERS });
+  const response = await client.chat.completions.create({ model, messages, temperature });
+  const content = response.choices?.[0]?.message?.content || '';
+  return { content, provider: 'openrouter', usage: response.usage || {} };
+}
+
+async function callG4F(model, messages, temperature) {
+  if (!G4F_BASE) {
+    throw new Error('G4F_API_URL ausente');
+  }
+
+  const url = `${G4F_BASE}/chat/completions`;
+  const payload = {
+    model: model || 'gpt-4o-mini',
+    messages,
+    stream: false,
+    temperature,
   };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`G4F falhou (${response.status})`);
+  }
+
+  const data = await response.json();
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content || choice?.delta?.content || data.message?.content || '';
+  return { content, provider: 'g4f', usage: data.usage || {} };
 }
 
 async function generateChat({ model, messages, temperature = 0.7 }) {
   const modelId = model || DEFAULT_MODEL;
-  const { provider, baseURL, apiKey, headers } = pickProvider(modelId);
-  if (!apiKey && provider === 'openrouter') {
-    throw new Error('OPENROUTER_API_KEY ausente');
+  const preferG4F = G4F_BASE && isG4FModel(modelId);
+
+  if (preferG4F) {
+    try {
+      return await callG4F(modelId, messages, temperature);
+    } catch (err) {
+      if (!OPENROUTER_API_KEY) throw err;
+      // Fallback silencioso para OpenRouter
+      return await callOpenRouter(modelId, messages, temperature);
+    }
   }
 
-  const client = buildClient(baseURL, apiKey, headers);
-  const response = await client.chat.completions.create({
-    model: modelId,
-    messages,
-    temperature,
-  });
-
-  const content = response.choices?.[0]?.message?.content || '';
-  const usage = response.usage || {};
-  return { content, provider, usage };
+  return callOpenRouter(modelId, messages, temperature);
 }
 
 module.exports = { generateChat };

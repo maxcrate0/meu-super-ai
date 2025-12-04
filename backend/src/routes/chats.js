@@ -80,7 +80,7 @@ router.post('/chat', async (req, res) => {
 
     res.json({ content, chatId: chat._id });
   } catch (err) {
-    console.error('Erro chat', err.message);
+    console.error('[chat] erro', err.message);
     await ModelUsage.create({
       modelId: model || undefined,
       provider: 'unknown',
