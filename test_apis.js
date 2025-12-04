@@ -36,6 +36,24 @@ async function testAPIs() {
     console.log('❌ G4F Python error:', e.message);
   }
 
+  // NOVO TESTE: G4F AnyProvider
+  try {
+    console.log('\n🔍 Testando G4F AnyProvider...');
+    const g4fModule = await import('./backend/g4f-client.mjs');
+    const client = new g4fModule.AnyProvider();
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'Olá! Responda apenas com "AnyProvider funcionando!"' }],
+    });
+    if (response?.choices?.[0]?.message?.content) {
+      console.log('✅ G4F AnyProvider:', response.choices[0].message.content.trim());
+    } else {
+      console.log('❌ G4F AnyProvider: resposta vazia');
+    }
+  } catch (e) {
+    console.log('❌ G4F AnyProvider error:', e.message);
+  }
+
   console.log('\n🏁 Teste concluído');
 }
 

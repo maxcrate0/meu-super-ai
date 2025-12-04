@@ -106,6 +106,7 @@ async function loadG4F() {
             HuggingFace: g4fModule.HuggingFace,
             Worker: g4fModule.Worker,
             Audio: g4fModule.Audio,
+            AnyProvider: g4fModule.AnyProvider,
             // Providers que requerem API key gratuita
             Groq: g4fModule.Groq,
             Cerebras: g4fModule.Cerebras,
@@ -1551,13 +1552,36 @@ const callG4F = async (model, messages, preferredProvider = null) => {
     if (isG4FPythonModel(model)) {
         return await callG4FPython(model, messages);
     }
-    
+
     const g4f = await loadG4F();
-    
+
+    // NOVA OPÇÃO: Usar AnyProvider para fallback automático inteligente
+    if (preferredProvider === 'anyprovider' || preferredProvider === 'auto') {
+        try {
+            console.log(`Usando G4F AnyProvider para modelo: ${model}`);
+            const client = new g4f.AnyProvider();
+            const response = await client.chat.completions.create({
+                model: model,
+                messages: messages,
+            });
+
+            if (response?.choices?.[0]?.message) {
+                console.log('G4F AnyProvider sucesso');
+                const msg = response.choices[0].message;
+                msg._provider = 'anyprovider';
+                msg._tokens = response.usage?.total_tokens || 0;
+                return msg;
+            }
+        } catch (e) {
+            console.log('G4F AnyProvider falhou, tentando fallback manual:', e.message);
+            // Continua para o fallback manual se AnyProvider falhar
+        }
+    }
+
     // Extrai o provedor do modelo se estiver no formato "provider/model"
     let provider = preferredProvider;
     let modelName = model;
-    
+
     if (model.includes('/')) {
         const parts = model.split('/');
         provider = parts[0];
@@ -1639,13 +1663,37 @@ const callG4FWithTools = async (model, messages, tools, preferredProvider = null
         console.log('G4F Python não suporta tools, chamando callG4F para processar...');
         return await callG4F(model, messages, preferredProvider);
     }
-    
+
     const g4f = await loadG4F();
-    
+
+    // NOVA OPÇÃO: Usar AnyProvider para fallback automático inteligente
+    if (preferredProvider === 'anyprovider' || preferredProvider === 'auto') {
+        try {
+            console.log(`Usando G4F AnyProvider com tools para modelo: ${model}`);
+            const client = new g4f.AnyProvider();
+            const response = await client.chat.completions.create({
+                model: model,
+                messages: messages,
+                tools: tools,
+            });
+
+            if (response?.choices?.[0]?.message) {
+                console.log('G4F AnyProvider com tools sucesso');
+                const msg = response.choices[0].message;
+                msg._provider = 'anyprovider';
+                msg._tokens = response.usage?.total_tokens || 0;
+                return msg;
+            }
+        } catch (e) {
+            console.log('G4F AnyProvider com tools falhou, tentando fallback manual:', e.message);
+            // Continua para o fallback manual se AnyProvider falhar
+        }
+    }
+
     // Extrai o provedor do modelo se estiver no formato "provider/model"
     let provider = preferredProvider;
     let modelName = model;
-    
+
     if (model.includes('/')) {
         const parts = model.split('/');
         provider = parts[0];

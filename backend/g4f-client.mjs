@@ -951,6 +951,17 @@ class HuggingFace extends Client {
 }
 
 
+class AnyProvider extends Client {
+    constructor(options = {}) {
+        super({
+            baseUrl: "https://g4f.dev/api/auto",
+            apiEndpoint: "https://g4f.dev/ai/",
+            ...options
+        });
+    }
+}
+
+
 export { 
     Client, 
     PollinationsAI, 
@@ -960,6 +971,7 @@ export {
     HuggingFace, 
     Worker, 
     Audio,
+    AnyProvider,
     // Providers com API key gratuita
     Groq,
     Cerebras,
