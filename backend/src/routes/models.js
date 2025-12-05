@@ -452,11 +452,7 @@ router.post('/models/refresh', async (_req, res) => {
   }
 });
 
-// Pre-load dos modelos no startup (executa em background, mas não bloqueia)
-setTimeout(() => {
-  Promise.all([loadG4FPythonModels(), loadOpenRouterModels()]).catch(err => {
-    console.error('⚠️ Aviso: Erro ao carregar modelos no startup:', err.message);
-  });
-}, 1000);
+// Modelos serão carregados sob demanda quando as rotas forem acessadas
+// Não há preload para evitar problemas na Azure onde Python/g4f podem não estar disponíveis
 
 module.exports = router;
