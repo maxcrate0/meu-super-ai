@@ -912,10 +912,26 @@ export default function ChatInterface({ user, setUser }) {
   useEffect(() => {
     const load = async () => {
       try {
+        // tenta carregar modelos G4F pelo backend; se falhar, usa fallback para o ACI público
+        const fetchG4F = async () => {
+          try {
+            return await http.get('/models/g4f');
+          } catch (e) {
+            try {
+              const res = await fetch('http://meu-super-ai-g4f.centralus.azurecontainer.io:8080/v1/models');
+              const json = await res.json().catch(() => null);
+              const arr = Array.isArray(json) ? json : (json?.data || []);
+              return { data: arr };
+            } catch (e2) {
+              return { data: [] };
+            }
+          }
+        };
+
         const [chatsRes, modelsRes, g4fRes] = await Promise.all([
           http.get('/chats'),
           http.get('/models'),
-          http.get('/models/g4f').catch(() => ({ data: [] })),
+          fetchG4F(),
         ]);
         
         // Merge all models with proper provider tagging

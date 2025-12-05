@@ -79,15 +79,30 @@ export default function AdminDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [statsRes, modelStatsRes, usersRes, hiddenRes, openRes, g4fRes, keysRes] = await Promise.all([
-        client.get('/admin/stats'),
-        client.get('/admin/models/stats').catch(() => ({ data: null })),
-        client.get('/admin/users'),
-        client.get('/admin/models/hidden'),
-        client.get('/models'),
-        client.get('/models/g4f').catch(() => ({ data: [] })),
-        client.get('/admin/api-keys').catch(() => ({ data: {} })),
-      ]);
+        const fetchG4F = async () => {
+          try {
+            return await client.get('/models/g4f');
+          } catch (e) {
+            try {
+              const res = await fetch('http://meu-super-ai-g4f.centralus.azurecontainer.io:8080/v1/models');
+              const json = await res.json().catch(() => null);
+              const arr = Array.isArray(json) ? json : (json?.data || []);
+              return { data: arr };
+            } catch (e2) {
+              return { data: [] };
+            }
+          }
+        };
+
+        const [statsRes, modelStatsRes, usersRes, hiddenRes, openRes, g4fRes, keysRes] = await Promise.all([
+          client.get('/admin/stats'),
+          client.get('/admin/models/stats').catch(() => ({ data: null })),
+          client.get('/admin/users'),
+          client.get('/admin/models/hidden'),
+          client.get('/models'),
+          fetchG4F(),
+          client.get('/admin/api-keys').catch(() => ({ data: {} })),
+        ]);
 
       setStats(statsRes.data || {});
       setModelStats(modelStatsRes.data || null);
