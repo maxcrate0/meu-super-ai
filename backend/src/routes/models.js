@@ -457,4 +457,4 @@ Promise.all([loadG4FPythonModels(), loadOpenRouterModels()]).catch(err => {
   console.error('⚠️ Aviso: Erro ao carregar modelos no startup:', err.message);
 });
 
-module.exports = { router, loadG4FPythonModels, loadOpenRouterModels };
+module.exports = router;
