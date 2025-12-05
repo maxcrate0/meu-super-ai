@@ -129,11 +129,156 @@ const G4F_MODELS = [
   { id: 'stable-diffusion-3', name: 'Stable Diffusion 3', provider: 'g4f', type: 'image' },
 ];
 
-// Cache para modelos G4F Python (carregados dinamicamente)
-let G4F_PYTHON_MODELS_CACHE = null;
-let G4F_PYTHON_CACHE_TIME = null;
-
-// Função para carregar modelos G4F Python dinamicamente
+// Lista completa de modelos G4F Python (fallback quando Python não está disponível)
+const G4F_PYTHON_MODELS_FALLBACK = [
+  // GPT Models
+  { id: 'gpt-4', name: 'GPT-4', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4.5', name: 'GPT-4.5', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4o', name: 'GPT-4o', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'g4f-python', type: 'chat' },
+  { id: 'gpt-4o-mini-audio-preview', name: 'GPT-4o Mini Audio', provider: 'g4f-python', type: 'audio' },
+  { id: 'gpt-4o-mini-tts', name: 'GPT-4o Mini TTS', provider: 'g4f-python', type: 'tts' },
+  { id: 'gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'g4f-python', type: 'chat' },
+  
+  // O1/O3/O4 Models
+  { id: 'o1', name: 'O1', provider: 'g4f-python', type: 'chat' },
+  { id: 'o1-mini', name: 'O1 Mini', provider: 'g4f-python', type: 'chat' },
+  { id: 'o3-mini', name: 'O3 Mini', provider: 'g4f-python', type: 'chat' },
+  { id: 'o3-mini-high', name: 'O3 Mini High', provider: 'g4f-python', type: 'chat' },
+  { id: 'o4-mini', name: 'O4 Mini', provider: 'g4f-python', type: 'chat' },
+  { id: 'o4-mini-high', name: 'O4 Mini High', provider: 'g4f-python', type: 'chat' },
+  
+  // DeepSeek Models
+  { id: 'deepseek-r1', name: 'DeepSeek R1', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-0528', name: 'DeepSeek R1 0528', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-0528-turbo', name: 'DeepSeek R1 Turbo', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-turbo', name: 'DeepSeek R1 Turbo', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 Distill Llama 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-distill-qwen-1.5b', name: 'DeepSeek R1 Distill Qwen 1.5B', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-distill-qwen-14b', name: 'DeepSeek R1 Distill Qwen 14B', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 Distill Qwen 32B', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-v3-0324', name: 'DeepSeek V3 0324', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-v3-0324-turbo', name: 'DeepSeek V3 Turbo', provider: 'g4f-python', type: 'chat' },
+  { id: 'deepseek-prover-v2', name: 'DeepSeek Prover V2', provider: 'g4f-python', type: 'code' },
+  { id: 'deepseek-prover-v2-671b', name: 'DeepSeek Prover V2 671B', provider: 'g4f-python', type: 'code' },
+  
+  // Gemini Models
+  { id: 'gemini-2.0', name: 'Gemini 2.0', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemini-2.0-flash-thinking', name: 'Gemini 2.0 Flash Thinking', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemini-2.0-flash-thinking-with-apps', name: 'Gemini 2.0 Flash Apps', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'g4f-python', type: 'chat' },
+  
+  // Gemma Models
+  { id: 'gemma-2b', name: 'Gemma 2B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-1.1-7b', name: 'Gemma 1.1 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-2-9b', name: 'Gemma 2 9B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-2-27b', name: 'Gemma 2 27B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-3-4b', name: 'Gemma 3 4B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-3-12b', name: 'Gemma 3 12B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-3-27b', name: 'Gemma 3 27B', provider: 'g4f-python', type: 'chat' },
+  { id: 'gemma-3n-e4b', name: 'Gemma 3n E4B', provider: 'g4f-python', type: 'chat' },
+  
+  // Llama Models
+  { id: 'llama-2-7b', name: 'Llama 2 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-2-70b', name: 'Llama 2 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3-8b', name: 'Llama 3 8B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3-70b', name: 'Llama 3 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.1-8b', name: 'Llama 3.1 8B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.1-405b', name: 'Llama 3.1 405B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.2-1b', name: 'Llama 3.2 1B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.2-3b', name: 'Llama 3.2 3B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.2-11b', name: 'Llama 3.2 11B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.2-90b', name: 'Llama 3.2 90B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-4-scout', name: 'Llama 4 Scout', provider: 'g4f-python', type: 'chat' },
+  { id: 'llama-4-maverick', name: 'Llama 4 Maverick', provider: 'g4f-python', type: 'chat' },
+  
+  // Qwen Models
+  { id: 'qwen-1.5-7b', name: 'Qwen 1.5 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2-72b', name: 'Qwen 2 72B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2-vl-7b', name: 'Qwen 2 VL 7B', provider: 'g4f-python', type: 'image' },
+  { id: 'qwen-2-vl-72b', name: 'Qwen 2 VL 72B', provider: 'g4f-python', type: 'image' },
+  { id: 'qwen-2.5', name: 'Qwen 2.5', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2.5-7b', name: 'Qwen 2.5 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2.5-72b', name: 'Qwen 2.5 72B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2.5-1m', name: 'Qwen 2.5 1M', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2.5-max', name: 'Qwen 2.5 Max', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-2.5-coder-32b', name: 'Qwen 2.5 Coder 32B', provider: 'g4f-python', type: 'code' },
+  { id: 'qwen-2.5-vl-72b', name: 'Qwen 2.5 VL 72B', provider: 'g4f-python', type: 'image' },
+  { id: 'qwen-3-0.6b', name: 'Qwen 3 0.6B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-3-1.7b', name: 'Qwen 3 1.7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-3-4b', name: 'Qwen 3 4B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-3-14b', name: 'Qwen 3 14B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-3-30b', name: 'Qwen 3 30B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-3-32b', name: 'Qwen 3 32B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwen-3-235b', name: 'Qwen 3 235B', provider: 'g4f-python', type: 'chat' },
+  { id: 'qwq-32b', name: 'QwQ 32B', provider: 'g4f-python', type: 'chat' },
+  
+  // Grok Models
+  { id: 'grok-2', name: 'Grok 2', provider: 'g4f-python', type: 'chat' },
+  { id: 'grok-3', name: 'Grok 3', provider: 'g4f-python', type: 'chat' },
+  { id: 'grok-3-r1', name: 'Grok 3 R1', provider: 'g4f-python', type: 'chat' },
+  
+  // Mistral Models
+  { id: 'mistral-7b', name: 'Mistral 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'mistral-nemo', name: 'Mistral Nemo', provider: 'g4f-python', type: 'chat' },
+  { id: 'mistral-small-24b', name: 'Mistral Small 24B', provider: 'g4f-python', type: 'chat' },
+  { id: 'mistral-small-3.1-24b', name: 'Mistral Small 3.1 24B', provider: 'g4f-python', type: 'chat' },
+  { id: 'mixtral-8x7b', name: 'Mixtral 8x7B', provider: 'g4f-python', type: 'chat' },
+  
+  // Phi Models
+  { id: 'phi-3.5-mini', name: 'Phi 3.5 Mini', provider: 'g4f-python', type: 'chat' },
+  { id: 'phi-4', name: 'Phi 4', provider: 'g4f-python', type: 'chat' },
+  { id: 'phi-4-multimodal', name: 'Phi 4 Multimodal', provider: 'g4f-python', type: 'image' },
+  { id: 'phi-4-reasoning-plus', name: 'Phi 4 Reasoning+', provider: 'g4f-python', type: 'chat' },
+  
+  // Other Models
+  { id: 'airoboros-70b', name: 'Airoboros 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'aria', name: 'Aria', provider: 'g4f-python', type: 'chat' },
+  { id: 'codegemma-7b', name: 'CodeGemma 7B', provider: 'g4f-python', type: 'code' },
+  { id: 'command-a', name: 'Command A', provider: 'g4f-python', type: 'chat' },
+  { id: 'command-r', name: 'Command R', provider: 'g4f-python', type: 'chat' },
+  { id: 'command-r-plus', name: 'Command R+', provider: 'g4f-python', type: 'chat' },
+  { id: 'command-r7b', name: 'Command R7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'dolphin-2.6', name: 'Dolphin 2.6', provider: 'g4f-python', type: 'chat' },
+  { id: 'dolphin-2.9', name: 'Dolphin 2.9', provider: 'g4f-python', type: 'chat' },
+  { id: 'evil', name: 'Evil', provider: 'g4f-python', type: 'chat' },
+  { id: 'hermes-2-dpo', name: 'Hermes 2 DPO', provider: 'g4f-python', type: 'chat' },
+  { id: 'janus-pro-7b', name: 'Janus Pro 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'kimi-k2', name: 'Kimi K2', provider: 'g4f-python', type: 'chat' },
+  { id: 'lzlv-70b', name: 'LZLV 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'meta-ai', name: 'Meta AI', provider: 'g4f-python', type: 'chat' },
+  { id: 'nemotron-70b', name: 'Nemotron 70B', provider: 'g4f-python', type: 'chat' },
+  { id: 'r1-1776', name: 'R1 1776', provider: 'g4f-python', type: 'chat' },
+  { id: 'sonar', name: 'Sonar', provider: 'g4f-python', type: 'chat' },
+  { id: 'sonar-pro', name: 'Sonar Pro', provider: 'g4f-python', type: 'chat' },
+  { id: 'sonar-reasoning', name: 'Sonar Reasoning', provider: 'g4f-python', type: 'chat' },
+  { id: 'sonar-reasoning-pro', name: 'Sonar Reasoning Pro', provider: 'g4f-python', type: 'chat' },
+  { id: 'wizardlm-2-7b', name: 'WizardLM 2 7B', provider: 'g4f-python', type: 'chat' },
+  { id: 'wizardlm-2-8x22b', name: 'WizardLM 2 8x22B', provider: 'g4f-python', type: 'chat' },
+  
+  // Image Generation Models
+  { id: 'dall-e-3', name: 'DALL-E 3', provider: 'g4f-python', type: 'image' },
+  { id: 'flux', name: 'Flux', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-canny', name: 'Flux Canny', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-depth', name: 'Flux Depth', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-dev', name: 'Flux Dev', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-dev-lora', name: 'Flux Dev LoRA', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-kontext', name: 'Flux Kontext', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-pro', name: 'Flux Pro', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-redux', name: 'Flux Redux', provider: 'g4f-python', type: 'image' },
+  { id: 'flux-schnell', name: 'Flux Schnell', provider: 'g4f-python', type: 'image' },
+  { id: 'gpt-image', name: 'GPT Image', provider: 'g4f-python', type: 'image' },
+  { id: 'sd-3.5-large', name: 'SD 3.5 Large', provider: 'g4f-python', type: 'image' },
+  { id: 'sdxl-turbo', name: 'SDXL Turbo', provider: 'g4f-python', type: 'image' },
+];
 async function loadG4FPythonModels() {
   // Retorna cache se ainda válido
   if (G4F_PYTHON_MODELS_CACHE && G4F_PYTHON_CACHE_TIME && 
@@ -184,17 +329,11 @@ print(json.dumps(models))
     return models;
   } catch (error) {
     console.error('❌ Erro ao carregar modelos G4F Python:', error.message);
-    // Fallback para lista mínima em caso de erro
-    const fallback = [
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'g4f-python', type: 'chat' },
-      { id: 'gpt-4o', name: 'GPT-4o', provider: 'g4f-python', type: 'chat' },
-      { id: 'gpt-4', name: 'GPT-4', provider: 'g4f-python', type: 'chat' },
-      { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'g4f-python', type: 'chat' },
-      { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', provider: 'g4f-python', type: 'chat' },
-      { id: 'gemini-pro', name: 'Gemini Pro', provider: 'g4f-python', type: 'chat' },
-    ];
-    console.log(`⚠️ Usando fallback com ${fallback.length} modelos G4F Python`);
-    return fallback;
+    // Fallback para lista completa hardcoded
+    G4F_PYTHON_MODELS_CACHE = G4F_PYTHON_MODELS_FALLBACK;
+    G4F_PYTHON_CACHE_TIME = Date.now();
+    console.log(`⚠️ Usando fallback com ${G4F_PYTHON_MODELS_FALLBACK.length} modelos G4F Python`);
+    return G4F_PYTHON_MODELS_FALLBACK;
   }
 }
 
@@ -318,4 +457,4 @@ Promise.all([loadG4FPythonModels(), loadOpenRouterModels()]).catch(err => {
   console.error('⚠️ Aviso: Erro ao carregar modelos no startup:', err.message);
 });
 
-module.exports = router;
+module.exports = { router, loadG4FPythonModels, loadOpenRouterModels };
