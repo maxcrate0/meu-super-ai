@@ -452,9 +452,11 @@ router.post('/models/refresh', async (_req, res) => {
   }
 });
 
-// Pre-load dos modelos no startup (executa em background)
-Promise.all([loadG4FPythonModels(), loadOpenRouterModels()]).catch(err => {
-  console.error('⚠️ Aviso: Erro ao carregar modelos no startup:', err.message);
-});
+// Pre-load dos modelos no startup (executa em background, mas não bloqueia)
+setTimeout(() => {
+  Promise.all([loadG4FPythonModels(), loadOpenRouterModels()]).catch(err => {
+    console.error('⚠️ Aviso: Erro ao carregar modelos no startup:', err.message);
+  });
+}, 1000);
 
 module.exports = router;
